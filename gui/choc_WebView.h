@@ -315,6 +315,7 @@ struct choc::ui::WebView::Pimpl
         call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("fullScreenEnabled"));
         call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("DOMPasteAllowed"));
         call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("javaScriptCanAccessClipboard"));
+        call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("allowFileAccessFromFileURLs"));
 
         if (options.enableDebugMode)
             call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("developerExtrasEnabled"));
@@ -356,7 +357,7 @@ struct choc::ui::WebView::Pimpl
         using namespace choc::objc;
         AutoReleasePool autoreleasePool;
         auto s = call<id> (call<id> (getClass ("WKUserScript"), "alloc"), "initWithSource:injectionTime:forMainFrameOnly:",
-                                     getNSString (script), WKUserScriptInjectionTimeAtDocumentStart, (BOOL) 1);
+                                     getNSString (script), WKUserScriptInjectionTimeAtDocumentStart, (BOOL) 0);
         call<void> (manager, "addUserScript:", s);
         call<void> (s, "release");
     }
