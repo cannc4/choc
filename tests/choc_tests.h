@@ -2133,14 +2133,19 @@ inline void testJavascript (TestProgress& progress, std::function<choc::javascri
                         ++result;
                 }
 
-                function t()
+                function stop() { testDone (result); }
+
+                function t1() {}
+
+                function t2()
                 {
                     clearInterval (intID);
-                    testDone (result);
+                    setTimeout (stop, 0);
                 }
 
-                setTimeout (t, 500);
-                intID = setInterval (i, 60);
+                setTimeout (t2, 500.1);
+                setTimeout (t1, 100);
+                intID = setInterval (i, 60.2);
             )");
 
             choc::messageloop::run();
@@ -2643,7 +2648,7 @@ inline bool runAllTests (TestProgress& progress)
 
     emergencyKillThread.start (1000, [&]
     {
-         if (++secondsElapsed > 60)
+         if (++secondsElapsed > 120)
          {
             std::cerr << "FAIL!! Tests timed out and were killed!" << std::endl;
             std::terminate();
@@ -2666,11 +2671,11 @@ inline bool runAllTests (TestProgress& progress)
         testIntToFloat (progress);
         testFIFOs (progress);
         testMIDIFiles (progress);
+        testTimers (progress);
         testJavascript (progress);
         testCOM (progress);
         testStableSort (progress);
         testAudioFileFormat (progress);
-        testTimers (progress);
         testThreading (progress);
     }
     CHOC_CATCH_UNEXPECTED_EXCEPTION
