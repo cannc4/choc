@@ -197,6 +197,9 @@ struct choc::ui::WebView::Pimpl
         {
             webkit_settings_set_enable_write_console_messages_to_stdout (settings, true);
             webkit_settings_set_enable_developer_extras (settings, true);
+
+            if (auto inspector = WEBKIT_WEB_INSPECTOR (webkit_web_view_get_inspector (WEBKIT_WEB_VIEW (webview))))
+                webkit_web_inspector_show (inspector);
         }
 
         if (! options.customUserAgent.empty())
@@ -997,22 +1000,26 @@ struct WebView::Pimpl
 
     void navigate (const std::string& url)
     {
-        coreWebView->Navigate (createUTF16StringFromUTF8 (url).c_str());
+        if (coreWebView != nullptr)
+            coreWebView->Navigate (createUTF16StringFromUTF8 (url).c_str());
     }
 
     void addInitScript (const std::string& script)
     {
-        coreWebView->AddScriptToExecuteOnDocumentCreated (createUTF16StringFromUTF8 (script).c_str(), nullptr);
+        if (coreWebView != nullptr)
+            coreWebView->AddScriptToExecuteOnDocumentCreated (createUTF16StringFromUTF8 (script).c_str(), nullptr);
     }
 
     void evaluateJavascript (const std::string& script)
     {
-        coreWebView->ExecuteScript (createUTF16StringFromUTF8 (script).c_str(), nullptr);
+        if (coreWebView != nullptr)
+            coreWebView->ExecuteScript (createUTF16StringFromUTF8 (script).c_str(), nullptr);
     }
 
     void setHTML (const std::string& html)
     {
-        coreWebView->NavigateToString (createUTF16StringFromUTF8 (html).c_str());
+        if (coreWebView != nullptr)
+            coreWebView->NavigateToString (createUTF16StringFromUTF8 (html).c_str());
     }
 
 private:
@@ -1049,25 +1056,32 @@ private:
 
     bool createEmbeddedWebView()
     {
-        auto userDataFolder = getUserDataFolder();
-
-        if (! userDataFolder.empty())
+        if (auto userDataFolder = getUserDataFolder(); ! userDataFolder.empty())
         {
             auto handler = new EventHandler (*this);
             webviewInitialising.test_and_set();
 
-            if (auto createWebView = (decltype(&CreateCoreWebView2EnvironmentWithOptions))
-                                        webviewDLL.findFunction ("CreateCoreWebView2EnvironmentWithOptions"))
+            if (auto createCoreWebView2EnvironmentWithOptions = (decltype(&CreateCoreWebView2EnvironmentWithOptions))
+                                                                   webviewDLL.findFunction ("CreateCoreWebView2EnvironmentWithOptions"))
             {
-                if (createWebView (nullptr, userDataFolder.c_str(), nullptr, handler) == S_OK)
+                if (createCoreWebView2EnvironmentWithOptions (nullptr, userDataFolder.c_str(), nullptr, handler) == S_OK)
                 {
                     MSG msg;
+                    auto timeoutTimer = SetTimer ({}, {}, 6000, {});
 
                     while (webviewInitialising.test_and_set() && GetMessage (std::addressof (msg), nullptr, 0, 0))
                     {
                         TranslateMessage (std::addressof (msg));
                         DispatchMessage (std::addressof (msg));
+
+                        if (msg.message == WM_TIMER && msg.hwnd == nullptr && msg.wParam == timeoutTimer)
+                            break;
                     }
+
+                    KillTimer ({}, timeoutTimer);
+
+                    if (coreWebView == nullptr)
+                        return false;
 
                     addInitScript ("window.external = { invoke: function(s) { window.chrome.webview.postMessage(s); } }");
 
@@ -1097,16 +1111,19 @@ private:
 
         env->AddRef();
         coreWebViewEnvironment = env;
-
         return true;
     }
 
     void webviewCreated (ICoreWebView2Controller* controller, ICoreWebView2* view)
     {
-        controller->AddRef();
-        view->AddRef();
-        coreWebViewController = controller;
-        coreWebView = view;
+        if (controller != nullptr && view != nullptr)
+        {
+            controller->AddRef();
+            view->AddRef();
+            coreWebViewController = controller;
+            coreWebView = view;
+        }
+
         webviewInitialising.clear();
     }
 
@@ -1132,30 +1149,22 @@ private:
             Fn onExit;
         };
 
-        const auto makeCleanup = [](auto*& ptr, auto cleanup)
-        {
-            return [&ptr, cleanup]
-            {
-                if (ptr)
-                    cleanup (ptr);
-            };
-        };
-
-        const auto makeCleanupIUnknown = [=](auto*& ptr)
-        {
-            return makeCleanup (ptr, [](auto* p) { p->Release(); });
-        };
+        auto makeCleanup          = [](auto*& ptr, auto cleanup) { return [&ptr, cleanup] { if (ptr) cleanup (ptr); }; };
+        auto makeCleanupIUnknown  = [](auto*& ptr)               { return [&ptr]          { if (ptr) ptr->Release(); }; };
 
         try
         {
+            if (coreWebViewEnvironment == nullptr)
+                return E_FAIL;
+
             ICoreWebView2WebResourceRequest* request = {};
-            const auto cleanupRequest = ScopedExit (makeCleanupIUnknown (request));
+            ScopedExit cleanupRequest (makeCleanupIUnknown (request));
 
             if (args->get_Request (std::addressof (request)) != S_OK)
                 return E_FAIL;
 
             LPWSTR uri = {};
-            const auto cleanupUri = ScopedExit (makeCleanup (uri, CoTaskMemFree));
+            ScopedExit cleanupUri (makeCleanup (uri, CoTaskMemFree));
 
             if (request->get_Uri (std::addressof (uri)) != S_OK)
                 return E_FAIL;
@@ -1163,7 +1172,7 @@ private:
             const auto path = createUTF8FromUTF16 (uri).substr (resourceRequestFilterUriPrefix.size() - 1);
 
             ICoreWebView2WebResourceResponse* response = {};
-            const auto cleanupResponse = ScopedExit (makeCleanupIUnknown (response));
+            ScopedExit cleanupResponse (makeCleanupIUnknown (response));
 
             if (const auto resource = fetchResource (path))
             {
@@ -1181,7 +1190,7 @@ private:
                 if (stream == nullptr)
                     return E_FAIL;
 
-                const auto cleanupStream = ScopedExit (makeCleanupIUnknown (stream));
+                ScopedExit cleanupStream (makeCleanupIUnknown (stream));
 
                 std::vector<std::string> headers;
                 headers.emplace_back ("Content-Type: " + resource->mimeType);
@@ -1244,8 +1253,15 @@ private:
 
         HRESULT STDMETHODCALLTYPE Invoke (HRESULT, ICoreWebView2Controller* controller) override
         {
+            if (controller == nullptr)
+                return E_FAIL;
+
             ICoreWebView2* view = {};
             controller->get_CoreWebView2 (std::addressof (view));
+
+            if (view == nullptr)
+                return E_FAIL;
+
             EventRegistrationToken token;
             view->add_WebMessageReceived (this, std::addressof (token));
             view->add_PermissionRequested (this, std::addressof (token));
@@ -1255,6 +1271,9 @@ private:
 
         HRESULT STDMETHODCALLTYPE Invoke (ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) override
         {
+            if (sender == nullptr)
+                return E_FAIL;
+
             LPWSTR message = {};
             args->TryGetWebMessageAsString (std::addressof (message));
             ownerPimpl.owner.invokeBinding (createUTF8FromUTF16 (message));
