@@ -116,7 +116,11 @@ public:
     /// Directly sets the HTML content of the browser
     void setHTML (const std::string& html);
 
-    /// Directly evaluates some javascript
+    /// Directly evaluates some javascript.
+    /// This call isn't guaranteed to be thread-safe, so calling it on
+    /// threads other than the main message thread could lead to problems.
+    /// It also goes without saying this this is not realtime-safe, and the
+    /// call may block, allocate or make system calls.
     void evaluateJavascript (const std::string& script);
 
     /// Sends the browser to this URL
@@ -188,7 +192,6 @@ struct choc::ui::WebView::Pimpl
                                             this);
 
         webkit_user_content_manager_register_script_message_handler (manager, "external");
-        addInitScript ("window.external = { invoke: function(s) { window.webkit.messageHandlers.external.postMessage(s); } }");
 
         WebKitSettings* settings = webkit_web_view_get_settings (WEBKIT_WEB_VIEW (webview));
         webkit_settings_set_javascript_can_access_clipboard (settings, true);
@@ -271,6 +274,8 @@ struct choc::ui::WebView::Pimpl
         g_clear_object (&webviewContext);
     }
 
+    static constexpr const char* postMessageFn = "window.webkit.messageHandlers.external.postMessage";
+
     void* getViewHandle() const     { return (void*) webview; }
 
     void evaluateJavascript (const std::string& js)
@@ -347,8 +352,6 @@ struct choc::ui::WebView::Pimpl
         call<void> (manager, "retain");
         call<void> (manager, "addScriptMessageHandler:name:", delegate, getNSString ("external"));
 
-        addInitScript ("window.external = { invoke: function(s) { window.webkit.messageHandlers.external.postMessage(s); } };");
-
         if (options.fetchResource)
             call<void> (config, "setURLSchemeHandler:forURLScheme:", delegate, getNSString ("choc"));
 
@@ -374,6 +377,8 @@ struct choc::ui::WebView::Pimpl
         objc::call<void> (manager, "release");
         objc::call<void> (delegate, "release");
     }
+
+    static constexpr const char* postMessageFn = "window.webkit.messageHandlers.external.postMessage";
 
     void* getViewHandle() const     { return (void*) webview; }
 
@@ -996,6 +1001,8 @@ struct WebView::Pimpl
         }
     }
 
+    static constexpr const char* postMessageFn = "window.chrome.webview.postMessage";
+
     void* getViewHandle() const     { return (void*) hwnd.hwnd; }
 
     void navigate (const std::string& url)
@@ -1082,8 +1089,6 @@ private:
 
                     if (coreWebView == nullptr)
                         return false;
-
-                    addInitScript ("window.external = { invoke: function(s) { window.chrome.webview.postMessage(s); } }");
 
                     if (fetchResource)
                     {
@@ -1372,7 +1377,7 @@ inline void WebView::bind (const std::string& functionName, CallbackFn&& fn)
         var promise = new Promise(function(resolve, reject) {
           fnBinding[messageID] = { resolve: resolve, reject: reject, };
         });
-        window.external.invoke(JSON.stringify({
+        INVOKE_BINDING(JSON.stringify({
           id: messageID,
           fn: "FUNCTION_NAME",
           params: Array.prototype.slice.call(arguments),
@@ -1381,7 +1386,8 @@ inline void WebView::bind (const std::string& functionName, CallbackFn&& fn)
       }
     })())";
 
-    script = choc::text::replace (script, "FUNCTION_NAME", functionName);
+    script = choc::text::replace (script, "FUNCTION_NAME", functionName,
+                                          "INVOKE_BINDING", Pimpl::postMessageFn);
     addInitScript (script);
     evaluateJavascript (script);
     bindings[functionName] = std::move (fn);
