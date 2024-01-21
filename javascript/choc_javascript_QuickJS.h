@@ -64074,6 +64074,8 @@ struct QuickJSContext  : public Context::Pimpl
         JS_SetMaxStackSize(runtime, 512 * 1024);
     }
 
+    void pumpMessageLoop() override {}
+
     void pushObjectOrArray (const choc::value::ValueView& v) override { functionArgs.push_back (valueToJS (v).release()); }
     void pushArg (std::string_view v) override                        { functionArgs.push_back (stringToJS (v).release()); }
     void pushArg (int32_t v) override                                 { functionArgs.push_back (JS_NewInt32   (context, v)); }
@@ -64196,7 +64198,7 @@ struct QuickJSContext  : public Context::Pimpl
             if (JS_IsObject (value))
             {
                 std::vector<std::string> propNames;
-                std::string className;
+                bool hasClassName = false;
 
                 for (auto obj = takeValue (JS_DupValue (context, value));;)
                 {
@@ -64214,7 +64216,7 @@ struct QuickJSContext  : public Context::Pimpl
                         auto nameString = std::string (name);
 
                         if (nameString == objectNameAttribute)
-                            className = std::move (nameString);
+                            hasClassName = true;
                         else
                             propNames.push_back (std::move (nameString));
 
@@ -64233,7 +64235,8 @@ struct QuickJSContext  : public Context::Pimpl
                     obj = std::move (proto);
                 }
 
-                auto o = choc::value::createObject (std::move (className));
+                auto o = choc::value::createObject (hasClassName ? (*this)[objectNameAttribute].toChocValue().toString()
+                                                                 : std::string());
 
                 for (auto& propName : propNames)
                     o.setMember (propName, (*this)[propName.c_str()].toChocValue());

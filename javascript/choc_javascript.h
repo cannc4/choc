@@ -142,6 +142,9 @@ namespace choc::javascript
         /// Binds a lambda function to a global name so that javascript code can invoke it.
         void registerFunction (const std::string& name, NativeFunction fn);
 
+        /// Pumps the message loop in an engine-specific way - may have no effect on some platforms.
+        void pumpMessageLoop();
+
         //==============================================================================
         /// @internal
         struct Pimpl;
@@ -160,6 +163,17 @@ namespace choc::javascript
     /// Creates a Duktape-based context. If you call this, then you'll need to
     /// include choc_javascript_Duktape.h in one (and only one!) of your source files.
     Context createDuktapeContext();
+
+    /// Creates a V8-based context. If you call this, then you'll need to
+    /// make sure that your project also has the V8 header folder in its
+    /// search path, and that you statically link the appropriate V8 libs.
+    Context createV8Context();
+
+    //==============================================================================
+    /// Sanitises a string to provide a version of it that is safe for use as a
+    /// javascript identifier. This involves removing/replacing any illegal
+    /// characters and modifying the string to avoid clashes with reserved words.
+    std::string makeSafeIdentifier (std::string name);
 }
 
 
@@ -202,6 +216,7 @@ struct Context::Pimpl
     virtual void pushArg (uint32_t) = 0;
     virtual void pushArg (double) = 0;
     virtual void pushArg (bool) = 0;
+    virtual void pumpMessageLoop() = 0;
 
     void pushArg (const std::string& v)   { pushArg (std::string_view (v)); }
     void pushArg (const char* v)          { pushArg (std::string_view (v)); }
@@ -265,6 +280,45 @@ inline choc::value::Value Context::evaluate (const std::string& javascriptCode, 
 {
     CHOC_ASSERT (pimpl != nullptr); // cannot call this on a moved-from context!
     return pimpl->evaluate (javascriptCode, resolveModule);
+}
+
+inline void Context::pumpMessageLoop()
+{
+    CHOC_ASSERT (pimpl != nullptr); // cannot call this on a moved-from context!
+    pimpl->pumpMessageLoop();
+}
+
+inline std::string makeSafeIdentifier (std::string s)
+{
+    constexpr static std::string_view reservedWords[] =
+    {
+        "abstract", "arguments", "await", "boolean", "break", "byte", "case", "catch",
+        "char", "class", "const", "continue", "debugger", "default", "delete", "do",
+        "double", "else", "enum", "eval", "export", "extends", "false", "final",
+        "finally", "float", "for", "function", "goto", "if", "implements", "import",
+        "in", "instanceof", "int", "interface", "let", "long", "native", "new",
+        "null", "package", "private", "protected", "public", "return", "short", "static",
+        "super", "switch", "synchronized", "this", "throw", "throws", "transient", "true",
+        "try", "typeof", "var", "void", "volatile", "while", "with", "yield"
+    };
+
+    for (auto& c : s)
+        if (std::string_view (" ,./;:").find (c) != std::string_view::npos)
+            c = '_';
+
+    s.erase (std::remove_if (s.begin(), s.end(), [&] (char c)
+    {
+        return ! ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9'));
+    }), s.end());
+
+    if (s[0] >= '0' && s[0] <= '9') // Identifiers can't start with a digit
+        s = "_" + s;
+
+    for (auto keyword : reservedWords)
+        if (s == keyword)
+            return s + "_";
+
+    return s;
 }
 
 } // namespace choc::javascript
