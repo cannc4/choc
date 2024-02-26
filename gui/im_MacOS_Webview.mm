@@ -8,7 +8,7 @@
     self = [super initWithFrame:frame configuration:configuration];
     if (self) {
         [self registerForDraggedTypes:@[NSFilenamesPboardType]];
-        acceptKeyEvents = YES;
+        acceptKeyEvents = NO;
     }
     return self;
 }
@@ -60,13 +60,19 @@
 }
 
 - (void)keyDown:(NSEvent *)event {
-    if (acceptKeyEvents) [super keyDown:event];
-    else [[self nextResponder] keyDown:event];
+    if (acceptKeyEvents) {
+        [super keyDown:event];
+    } else {
+        [[self nextResponder] keyDown:event];
+    }
 }
 
 - (void)keyUp:(NSEvent *)event {
-    if (acceptKeyEvents) [super keyUp:event];
-    else [[self nextResponder] keyUp:event];
+    if (acceptKeyEvents) {
+        [super keyUp:event];
+    } else {
+        [[self nextResponder] keyUp:event];
+    }
 }
 
 - (void)interpretKeyEvents:(NSArray<NSEvent*> *)events {
