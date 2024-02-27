@@ -150,10 +150,8 @@ public:
         virtual void onKeyUp(std::string key) {}
     };
 
-#if JUCE_WINDOWS
     void addKeyListener(KeyListener* l);
     void removeKeyListener(KeyListener* l);
-#endif
 
 private:
     //==============================================================================
@@ -1355,15 +1353,17 @@ inline bool WebView::addInitScript (const std::string& script)       { return pi
 inline bool WebView::evaluateJavascript (const std::string& script)  { return pimpl != nullptr && pimpl->evaluateJavascript (script); }
 inline void* WebView::getViewHandle() const                          { return pimpl != nullptr ? pimpl->getViewHandle() : nullptr; }
 
-#if JUCE_WINDOWS
 inline void WebView::addKeyListener(choc::ui::WebView::KeyListener *l) {
+#if JUCE_WINDOWS
     if (pimpl != nullptr) pimpl->addKeyListener(l);
+#endif
 }
 
 inline void WebView::removeKeyListener(choc::ui::WebView::KeyListener *l) {
+#if JUCE_WINDOWS
     if (pimpl != nullptr) pimpl->removeKeyListener(l);
-}
 #endif
+}
 
 inline bool WebView::bind (const std::string& functionName, CallbackFn&& fn)
 {
