@@ -122,11 +122,6 @@ namespace choc::ui {
 
         if (options.fetchResource)
             navigate ("choc://choc.choc/");
-
-        owner.bind("juce_enableKeyEvents", [&](const choc::value::ValueView &args) -> choc::value::Value {
-            call<void>(webview, "setAcceptKeyEvents:", args[0].getWithDefault(false));
-            return {};
-        });
     }
 
     WebView::Pimpl::~Pimpl()
