@@ -1327,18 +1327,20 @@ inline WebView::WebView (const Options& options)
         return {};
     });
 
-#if JUCE_WINDOWS
     bind("juce_onKeyDown", [&](const choc::value::ValueView &args) -> choc::value::Value {
+#if JUCE_WINDOWS
         pimpl->onJSKeyDown(args[0].getWithDefault(""));
+#endif
         return {};
     });
 
     bind("juce_onKeyUp", [&](const choc::value::ValueView &args) -> choc::value::Value {
+#if JUCE_WINDOWS
         pimpl->onJSKeyUp(args[0].getWithDefault(""));
+#endif
         return {};
     });
 
-#endif
 }
 
 inline WebView::~WebView()
