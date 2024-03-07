@@ -97,10 +97,13 @@ public:
         {
             std::vector<uint8_t> data;
             std::string mimeType;
+            std::string contentRange {""};
         };
 
         using Path = std::string;
-        using FetchResource = std::function<std::optional<Resource>(const Path&)>;
+        using Method = std::string;
+        using Headers = std::unordered_map<std::string, std::string>;
+        using FetchResource = std::function<std::optional<Resource>(const Path&, const Method& method, const Headers&)>;
         FetchResource fetchResource;
     };
 
@@ -243,6 +246,7 @@ struct choc::ui::WebView::Pimpl
 
                         auto* headers = soup_message_headers_new (SOUP_MESSAGE_HEADERS_RESPONSE);
                         soup_message_headers_append (headers, "Cache-Control", "no-store");
+                        soup_message_headers_append (headers, "Access-Control-Allow-Origin", "*");
                         webkit_uri_scheme_response_set_http_headers (response, headers); // response takes ownership of the headers
 
                         webkit_uri_scheme_request_finish_with_response (request, response);
@@ -351,19 +355,70 @@ struct choc::ui::WebView::Pimpl
 
 struct choc::ui::WebView::Pimpl
 {
-    Pimpl (WebView& v, const Options& optionsToUse);
+    Pimpl (WebView& v, const Options& optionsToUse)
+        : owner (v), options (std::make_unique<Options> (optionsToUse))
+    {
+        using namespace choc::objc;
+        CHOC_AUTORELEASE_BEGIN
 
-    ~Pimpl();
+        id config = call<id> (getClass ("WKWebViewConfiguration"), "new");
+
+        id prefs = call<id> (config, "preferences");
+        call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("fullScreenEnabled"));
+        call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("DOMPasteAllowed"));
+        call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("javaScriptCanAccessClipboard"));
+
+        if (options->enableDebugMode)
+            call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("developerExtrasEnabled"));
+
+        delegate = createDelegate();
+        objc_setAssociatedObject (delegate, "choc_webview", (CHOC_OBJC_CAST_BRIDGED id) this, OBJC_ASSOCIATION_ASSIGN);
+
+        manager = call<id> (config, "userContentController");
+        call<void> (manager, "retain");
+        call<void> (manager, "addScriptMessageHandler:name:", delegate, getNSString ("external"));
+
+        if (options->fetchResource)
+            call<void> (config, "setURLSchemeHandler:forURLScheme:", delegate, getNSString ("choc"));
+
+        webview = call<id> (allocateWebview(), "initWithFrame:configuration:", CGRect(), config);
+        objc_setAssociatedObject (webview, "choc_webview", (CHOC_OBJC_CAST_BRIDGED id) this, OBJC_ASSOCIATION_ASSIGN);
+
+        if (! options->customUserAgent.empty())
+            call<void> (webview, "setValue:forKey:", getNSString (options->customUserAgent), getNSString ("customUserAgent"));
+
+        call<void> (webview, "setUIDelegate:", delegate);
+        call<void> (webview, "setNavigationDelegate:", delegate);
+
+        call<void> (config, "release");
+
+        if (options->fetchResource)
+            navigate ("choc://choc.choc/");
+
+        CHOC_AUTORELEASE_END
+    }
+
+    ~Pimpl()
+    {
+        CHOC_AUTORELEASE_BEGIN
+        objc_setAssociatedObject (delegate, "choc_webview", nil, OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject (webview, "choc_webview", nil, OBJC_ASSOCIATION_ASSIGN);
+        objc::call<void> (webview, "release");
+        objc::call<void> (manager, "removeScriptMessageHandlerForName:", objc::getNSString ("external"));
+        objc::call<void> (manager, "release");
+        objc::call<void> (delegate, "release");
+        CHOC_AUTORELEASE_END
+    }
 
     static constexpr const char* postMessageFn = "window.webkit.messageHandlers.external.postMessage";
 
     bool loadedOK() const           { return getViewHandle() != nullptr; }
-    void* getViewHandle() const     { return (void*) webview; }
+    void* getViewHandle() const     { return (CHOC_OBJC_CAST_BRIDGED void*) webview; }
 
     bool addInitScript (const std::string& script)
     {
         using namespace choc::objc;
-        AutoReleasePool autoreleasePool;
+        CHOC_AUTORELEASE_BEGIN
 
         if (id s = call<id> (call<id> (getClass ("WKUserScript"), "alloc"), "initWithSource:injectionTime:forMainFrameOnly:",
                                        getNSString (script), WKUserScriptInjectionTimeAtDocumentStart, (BOOL) 1))
@@ -373,30 +428,39 @@ struct choc::ui::WebView::Pimpl
             return true;
         }
 
+        CHOC_AUTORELEASE_END
         return false;
     }
 
     bool navigate (const std::string& url)
     {
         using namespace choc::objc;
-        AutoReleasePool autoreleasePool;
+        CHOC_AUTORELEASE_BEGIN
 
         if (id nsURL = call<id> (getClass ("NSURL"), "URLWithString:", getNSString (url)))
             return call<id> (webview, "loadRequest:", call<id> (getClass ("NSURLRequest"), "requestWithURL:", nsURL)) != nullptr;
 
+        CHOC_AUTORELEASE_END
         return false;
     }
 
     bool setHTML (const std::string& html)
     {
-        objc::AutoReleasePool autoreleasePool;
+        CHOC_AUTORELEASE_BEGIN
         return objc::call<id> (webview, "loadHTMLString:baseURL:", objc::getNSString (html), (id) nullptr) != nullptr;
+        CHOC_AUTORELEASE_END
     }
-
-    bool evaluateJavascript (const std::string& script);
 
     void setAcceptKeyEvents(bool accept) {
         objc::call<void>(webview, "setAcceptKeyEvents:", accept);
+    }
+
+    bool evaluateJavascript (const std::string& script)
+    {
+        CHOC_AUTORELEASE_BEGIN
+        objc::call<void> (webview, "evaluateJavaScript:completionHandler:", objc::getNSString (script), (id) nullptr);
+        return true;
+        CHOC_AUTORELEASE_END
     }
 
 private:
@@ -408,59 +472,7 @@ private:
 
     id allocateWebview();
 
-    void onResourceRequested (id task)
-    {
-        using namespace choc::objc;
-        AutoReleasePool autoreleasePool;
-
-        try
-        {
-            id requestUrl = call<id> (call<id> (task, "request"), "URL");
-
-            auto makeResponse = [&] (auto responseCode, id headerFields)
-            {
-                return call<id> (call<id> (call<id> (getClass ("NSHTTPURLResponse"), "alloc"),
-                                           "initWithURL:statusCode:HTTPVersion:headerFields:",
-                                           requestUrl,
-                                           responseCode,
-                                           getNSString ("HTTP/1.1"),
-                                           headerFields),
-                                 "autorelease");
-            };
-
-            auto path = objc::getString (call<id> (requestUrl, "path"));
-
-            if (auto resource = options.fetchResource (path))
-            {
-                const auto& [bytes, mimeType] = *resource;
-
-                auto contentLength = std::to_string (bytes.size());
-                id headerKeys[]    = { getNSString ("Content-Length"), getNSString ("Content-Type"), getNSString ("Cache-Control") };
-                id headerObjects[] = { getNSString (contentLength),    getNSString (mimeType),       getNSString ("no-store") };
-
-                id headerFields = call<id> (getClass ("NSDictionary"), "dictionaryWithObjects:forKeys:count:",
-                                            headerObjects, headerKeys, sizeof (headerObjects) / sizeof (id));
-
-                call<void> (task, "didReceiveResponse:", makeResponse (200, headerFields));
-
-                id data = call<id> (getClass ("NSData"), "dataWithBytes:length:", bytes.data(), bytes.size());
-                call<void> (task, "didReceiveData:", data);
-            }
-            else
-            {
-                call<void> (task, "didReceiveResponse:", makeResponse (404, nullptr));
-            }
-
-            call<void> (task, "didFinish");
-        }
-        catch (...)
-        {
-            id error = call<id> (getClass ("NSError"), "errorWithDomain:code:userInfo:",
-                                 getNSString ("NSURLErrorDomain"), -1, nullptr);
-
-            call<void> (task, "didFailWithError:", error);
-        }
-    }
+    void onResourceRequested (void* task);
 
     BOOL sendAppAction (id self, const char* action)
     {
@@ -520,25 +532,103 @@ private:
 
     static Pimpl* getPimpl (id self)
     {
-        return reinterpret_cast<Pimpl*> (objc_getAssociatedObject (self, "choc_webview"));
+        return (CHOC_OBJC_CAST_BRIDGED Pimpl*) (objc_getAssociatedObject (self, "choc_webview"));
     }
 
     WebView& owner;
-    Options options;
+    // NB: this is a pointer because making it a member forces the alignment of this Pimpl class
+    // to 16, which then conflicts with obj-C pointer alignment...
+    std::unique_ptr<Options> options;
     id webview = {}, manager = {}, delegate = {};
 
     struct WebviewClass
     {
         WebviewClass();
-        ~WebviewClass();
+
+        ~WebviewClass()
+        {
+            // NB: it doesn't seem possible to dispose of this class late enough to avoid a warning on shutdown
+            // about the KVO system still using it, so unfortunately the only option seems to be to let it leak..
+            // objc_disposeClassPair (webviewClass);
+        }
 
         Class webviewClass = {};
     };
 
     struct DelegateClass
     {
-        DelegateClass();
-        ~DelegateClass();
+        DelegateClass()
+        {
+            using namespace choc::objc;
+            delegateClass = createDelegateClass ("NSObject", "CHOCWebViewDelegate_");
+
+            class_addMethod (delegateClass, sel_registerName ("userContentController:didReceiveScriptMessage:"),
+                             (IMP) (+[](id self, SEL, id, id msg)
+                             {
+                                 if (auto p = getPimpl (self))
+                                     p->owner.invokeBinding (objc::getString (call<id> (msg, "body")));
+                             }),
+                             "v@:@@");
+
+            class_addMethod (delegateClass, sel_registerName ("webView:startURLSchemeTask:"),
+                             (IMP) (+[](id self, SEL, id, id task)
+                             {
+                                 if (auto p = getPimpl (self))
+                                     p->onResourceRequested (task);
+                             }),
+                             "v@:@@");
+
+            class_addMethod (delegateClass, sel_registerName ("webView:didFailProvisionalNavigation:withError:"),
+                             (IMP) (+[](id self, SEL, id, id, id error)
+                             {
+                                 if (auto p = getPimpl (self))
+                                     p->handleError (error);
+                             }),
+                             "v@:@@@");
+
+            class_addMethod (delegateClass, sel_registerName ("webView:didFailNavigation:withError:"),
+                             (IMP) (+[](id self, SEL, id, id, id error)
+                             {
+                                 if (auto p = getPimpl (self))
+                                     p->handleError (error);
+                             }),
+                             "v@:@@@");
+
+            class_addMethod (delegateClass, sel_registerName ("webView:stopURLSchemeTask:"), (IMP) (+[](id, SEL, id, id) {}), "v@:@@");
+
+            class_addMethod (delegateClass, sel_registerName ("webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:"),
+                             (IMP) (+[](id, SEL, id wkwebview, id params, id /*frame*/, void (^completionHandler)(id))
+                             {
+                                CHOC_AUTORELEASE_BEGIN
+                                id panel = call<id> (getClass ("NSOpenPanel"), "openPanel");
+
+                                auto allowsMultipleSelection = call<BOOL> (params, "allowsMultipleSelection");
+                                id allowedFileExtensions = call<id> (params, "_allowedFileExtensions");
+                                id window = call<id> (wkwebview, "window");
+
+                                call<void> (panel, "setAllowsMultipleSelection:", allowsMultipleSelection);
+                                call<void> (panel, "setAllowedFileTypes:", allowedFileExtensions);
+
+                                call<void> (panel, "beginSheetModalForWindow:completionHandler:", window,
+                                            ^(long result)
+                                            {
+                                                CHOC_AUTORELEASE_BEGIN
+                                                if (result == 1) // NSModalResponseOK
+                                                    completionHandler (call<id> (panel, "URLs"));
+                                                else
+                                                    completionHandler (nil);
+                                                CHOC_AUTORELEASE_END
+                                            });
+                                CHOC_AUTORELEASE_END
+                             }), "v@:@@@@");
+
+            objc_registerClassPair (delegateClass);
+        }
+
+        ~DelegateClass()
+        {
+            objc_disposeClassPair (delegateClass);
+        }
 
         Class delegateClass = {};
     };
@@ -619,21 +709,21 @@ typedef interface ICoreWebView2WebResourceRequestedEventArgs ICoreWebView2WebRes
 typedef interface ICoreWebView2WebResourceRequestedEventHandler ICoreWebView2WebResourceRequestedEventHandler;
 typedef interface ICoreWebView2WebResourceResponse ICoreWebView2WebResourceResponse;
 
-MIDL_INTERFACE("8B4F98CE-DB0D-4E71-85FD-C4C4EF1F2630")
+MIDL_INTERFACE("4e8a3389-c9d8-4bd2-b6b5-124fee6cc14d")
 ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler : public IUnknown
 {
 public:
     virtual HRESULT STDMETHODCALLTYPE Invoke(HRESULT, ICoreWebView2Environment*) = 0;
 };
 
-MIDL_INTERFACE("86EF6808-3C3F-4C6F-975E-8CE0B98F70BA")
+MIDL_INTERFACE("6c4819f3-c9b7-4260-8127-c9f5bde7f68c")
 ICoreWebView2CreateCoreWebView2ControllerCompletedHandler : public IUnknown
 {
 public:
     virtual HRESULT STDMETHODCALLTYPE Invoke(HRESULT, ICoreWebView2Controller*) = 0;
 };
 
-MIDL_INTERFACE("DA66D884-6DA8-410E-9630-8C48F8B3A40E")
+MIDL_INTERFACE("b96d755e-0319-4e92-a296-23436f46a1fc")
 ICoreWebView2Environment : public IUnknown
 {
 public:
@@ -644,7 +734,7 @@ public:
      virtual HRESULT STDMETHODCALLTYPE remove_NewBrowserVersionAvailable(EventRegistrationToken) = 0;
 };
 
-MIDL_INTERFACE("B263B5AE-9C54-4B75-B632-40AE1A0B6912")
+MIDL_INTERFACE("0f99a40c-e962-4207-9e92-e3d542eff849")
 ICoreWebView2WebMessageReceivedEventArgs : public IUnknown
 {
 public:
@@ -653,7 +743,7 @@ public:
      virtual HRESULT STDMETHODCALLTYPE TryGetWebMessageAsString(LPWSTR *) = 0;
 };
 
-MIDL_INTERFACE("199328C8-9964-4F5F-84E6-E875B1B763D6")
+MIDL_INTERFACE("57213f19-00e6-49fa-8e07-898ea01ecbd2")
 ICoreWebView2WebMessageReceivedEventHandler : public IUnknown
 {
 public:
@@ -691,7 +781,7 @@ enum COREWEBVIEW2_WEB_RESOURCE_CONTEXT
     COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL = 0
 };
 
-MIDL_INTERFACE("A7ED8BF0-3EC9-4E39-8427-3D6F157BD285")
+MIDL_INTERFACE("c10e7f7b-b585-46f0-a623-8befbf3e4ee0")
 ICoreWebView2Deferral : public IUnknown
 {
 public:
@@ -711,7 +801,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE get_Headers(ICoreWebView2HttpRequestHeaders**) = 0;
 };
 
-MIDL_INTERFACE("774B5EA1-3FAD-435C-B1FC-A77D1ACD5EAF")
+MIDL_INTERFACE("973ae2ef-ff18-4894-8fb2-3c758f046810")
 ICoreWebView2PermissionRequestedEventArgs : public IUnknown
 {
 public:
@@ -723,18 +813,51 @@ public:
      virtual HRESULT STDMETHODCALLTYPE GetDeferral(ICoreWebView2Deferral **) = 0;
 };
 
-MIDL_INTERFACE("543B4ADE-9B0B-4748-9AB7-D76481B223AA")
+
+MIDL_INTERFACE("e562e4f0-d7fa-43ac-8d71-c05150499f00")
+ICoreWebView2Settings : public IUnknown
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE get_IsScriptEnabled(BOOL * isScriptEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsScriptEnabled(BOOL isScriptEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_IsWebMessageEnabled(BOOL* isWebMessageEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsWebMessageEnabled(BOOL isWebMessageEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_AreDefaultScriptDialogsEnabled(BOOL* areDefaultScriptDialogsEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_AreDefaultScriptDialogsEnabled(BOOL areDefaultScriptDialogsEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_IsStatusBarEnabled(BOOL* isStatusBarEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsStatusBarEnabled(BOOL isStatusBarEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_AreDevToolsEnabled(BOOL* areDevToolsEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_AreDevToolsEnabled(BOOL areDevToolsEnabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_AreDefaultContextMenusEnabled(BOOL* enabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_AreDefaultContextMenusEnabled(BOOL enabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_AreHostObjectsAllowed(BOOL* allowed) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_AreHostObjectsAllowed(BOOL allowed) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_IsZoomControlEnabled(BOOL* enabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsZoomControlEnabled(BOOL enabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_IsBuiltInErrorPageEnabled(BOOL* enabled) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsBuiltInErrorPageEnabled(BOOL enabled) = 0;
+};
+
+MIDL_INTERFACE("ee9a0f68-f46c-4e32-ac23-ef8cac224d2a")
+ICoreWebView2Settings2 : public ICoreWebView2Settings
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE get_UserAgent(LPWSTR * userAgent) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_UserAgent(LPCWSTR userAgent) = 0;
+};
+
+MIDL_INTERFACE("15e1c6a3-c72a-4df3-91d7-d097fbec6bfd")
 ICoreWebView2PermissionRequestedEventHandler : public IUnknown
 {
 public:
-     virtual HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *, ICoreWebView2PermissionRequestedEventArgs *) = 0;
+     virtual HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs*) = 0;
 };
 
-MIDL_INTERFACE("189B8AAF-0426-4748-B9AD-243F537EB46B")
+MIDL_INTERFACE("76eceacb-0462-4d94-ac83-423a6793775e")
 ICoreWebView2 : public IUnknown
 {
 public:
-    virtual HRESULT STDMETHODCALLTYPE get_Settings(void**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE get_Settings(ICoreWebView2Settings**) = 0;
     virtual HRESULT STDMETHODCALLTYPE get_Source(LPWSTR*) = 0;
     virtual HRESULT STDMETHODCALLTYPE Navigate(LPCWSTR) = 0;
     virtual HRESULT STDMETHODCALLTYPE NavigateToString(LPCWSTR) = 0;
@@ -794,7 +917,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE remove_WindowCloseRequested(EventRegistrationToken) = 0;
 };
 
-MIDL_INTERFACE("7CCC5C7F-8351-4572-9077-9C1C80913835")
+MIDL_INTERFACE("4d00c0d1-9434-4eb6-8078-8697a560334f")
 ICoreWebView2Controller : public IUnknown
 {
 public:
@@ -825,7 +948,7 @@ public:
 
 STDAPI CreateCoreWebView2EnvironmentWithOptions(PCWSTR, PCWSTR, void*, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*);
 
-MIDL_INTERFACE("4212F3A7-0FBC-4C9C-8118-17ED6370C1B3")
+MIDL_INTERFACE("0702fc30-f43b-47bb-ab52-a42cb552ad9f")
 ICoreWebView2HttpHeadersCollectionIterator : public IUnknown
 {
 public:
@@ -834,7 +957,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE MoveNext(BOOL*) = 0;
 };
 
-MIDL_INTERFACE("2C1F04DF-C90E-49E4-BD25-4A659300337B")
+MIDL_INTERFACE("e86cac0e-5523-465c-b536-8fb9fc8c8c60")
 ICoreWebView2HttpRequestHeaders : public IUnknown
 {
 public:
@@ -846,7 +969,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE GetIterator(ICoreWebView2HttpHeadersCollectionIterator**) = 0;
 };
 
-MIDL_INTERFACE("B5F6D4D5-1BFF-4869-85B8-158153017B04")
+MIDL_INTERFACE("03c5ff5a-9b45-4a88-881c-89a9f328619c")
 ICoreWebView2HttpResponseHeaders : public IUnknown
 {
 public:
@@ -857,7 +980,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE GetIterator(ICoreWebView2HttpHeadersCollectionIterator**) = 0;
 };
 
-MIDL_INTERFACE("2D7B3282-83B1-41CA-8BBF-FF18F6BFE320")
+MIDL_INTERFACE("453e667f-12c7-49d4-be6d-ddbe7956f57a")
 ICoreWebView2WebResourceRequestedEventArgs : public IUnknown
 {
 public:
@@ -868,14 +991,14 @@ public:
     virtual HRESULT STDMETHODCALLTYPE get_ResourceContext(COREWEBVIEW2_WEB_RESOURCE_CONTEXT*) = 0;
 };
 
-MIDL_INTERFACE("F6DC79F2-E1FA-4534-8968-4AFF10BBAA32")
+MIDL_INTERFACE("ab00b74c-15f1-4646-80e8-e76341d25d71")
 ICoreWebView2WebResourceRequestedEventHandler : public IUnknown
 {
 public:
     virtual HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs*) = 0;
 };
 
-MIDL_INTERFACE("5953D1FC-B08F-46DD-AFD3-66B172419CD0")
+MIDL_INTERFACE("aafcc94f-fa27-48fd-97df-830ef75aaec9")
 ICoreWebView2WebResourceResponse : public IUnknown
 {
 public:
@@ -898,8 +1021,8 @@ namespace choc::ui
 //==============================================================================
 struct WebView::Pimpl
 {
-    Pimpl (WebView& v, const Options& options)
-        : owner (v), fetchResource (options.fetchResource), customUserAgent (options.customUserAgent)
+    Pimpl (WebView& v, const Options& opts)
+        : owner (v), options (opts)
     {
         // You cam define this macro to provide a custom way of getting a
         // choc::file::DynamicLibrary that contains the redistributable
@@ -970,7 +1093,13 @@ struct WebView::Pimpl
     bool setHTML (const std::string& html)
     {
         CHOC_ASSERT (coreWebView != nullptr);
-        return coreWebView->NavigateToString (createUTF16StringFromUTF8 (html).c_str()) == S_OK;
+
+        pageHTML.data.clear();
+        std::copy (html.begin(), html.end(), std::back_inserter (pageHTML.data));
+        pageHTML.mimeType = "text/html";
+
+        navigate (setHTMLUri);
+        return true;
     }
 
     void addKeyListener(KeyListener* l) {
@@ -990,6 +1119,8 @@ private:
     WindowClass windowClass { L"CHOCWebView", (WNDPROC) wndProc };
     HWNDHolder hwnd;
     const std::string resourceRequestFilterUriPrefix = "https://choc.localhost/";
+    const std::string setHTMLUri                     = "https://choc.localhost/setHTML";
+    WebView::Options::Resource pageHTML;
 
     static Pimpl* getPimpl (HWND h)     { return (Pimpl*) GetWindowLongPtr (h, GWLP_USERDATA); }
 
@@ -1047,15 +1178,36 @@ private:
                     if (coreWebView == nullptr)
                         return false;
 
-                    if (fetchResource)
-                    {
-                        const auto wildcardFilter = createUTF16StringFromUTF8 (resourceRequestFilterUriPrefix.c_str()) + L"*";
-                        coreWebView->AddWebResourceRequestedFilter (wildcardFilter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                    const auto wildcardFilter = createUTF16StringFromUTF8 (resourceRequestFilterUriPrefix.c_str()) + L"*";
+                    coreWebView->AddWebResourceRequestedFilter (wildcardFilter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
 
-                        EventRegistrationToken token;
-                        coreWebView->add_WebResourceRequested (handler, std::addressof (token));
+                    EventRegistrationToken token;
+                    coreWebView->add_WebResourceRequested (handler, std::addressof (token));
 
+                    if (options.fetchResource)
                         navigate (resourceRequestFilterUriPrefix);
+
+                    ICoreWebView2Settings* settings = nullptr;
+
+                    if (coreWebView->get_Settings (std::addressof (settings)) == S_OK
+                         && settings != nullptr)
+                    {
+                        settings->put_AreDevToolsEnabled (options.enableDebugMode);
+
+                        if (! options.customUserAgent.empty())
+                        {
+                            ICoreWebView2Settings2* settings2 = nullptr;
+
+                            // This palaver is needed because __uuidof doesn't work in MINGW
+                            auto guid = IID { 0xee9a0f68, 0xf46c, 0x4e32, { 0xac, 0x23, 0xef, 0x8c, 0xac, 0x22, 0x4d, 0x2a } };
+
+                            if (settings->QueryInterface (guid, (void**) std::addressof (settings2)) == S_OK
+                                 && settings2 != nullptr)
+                            {
+                                auto agent = createUTF16StringFromUTF8 (options.customUserAgent);
+                                settings2->put_UserAgent (agent.c_str());
+                            }
+                        }
                     }
 
                     return true;
@@ -1087,6 +1239,14 @@ private:
         }
 
         webviewInitialising.clear();
+    }
+
+    std::optional<WebView::Options::Resource> fetchResourceOrPageHTML (const std::string& uri)
+    {
+        if (uri == setHTMLUri)
+            return pageHTML;
+
+        return options.fetchResource (uri.substr (resourceRequestFilterUriPrefix.size() - 1));
     }
 
     HRESULT onResourceRequested (ICoreWebView2WebResourceRequestedEventArgs* args)
@@ -1131,12 +1291,10 @@ private:
             if (request->get_Uri (std::addressof (uri)) != S_OK)
                 return E_FAIL;
 
-            const auto path = createUTF8FromUTF16 (uri).substr (resourceRequestFilterUriPrefix.size() - 1);
-
             ICoreWebView2WebResourceResponse* response = {};
             ScopedExit cleanupResponse (makeCleanupIUnknown (response));
 
-            if (const auto resource = fetchResource (path))
+            if (const auto resource = fetchResourceOrPageHTML (createUTF8FromUTF16 (uri)))
             {
                 const auto makeMemoryStream = [](const auto* data, auto length) -> IStream*
                 {
@@ -1157,9 +1315,10 @@ private:
                 std::vector<std::string> headers;
                 headers.emplace_back ("Content-Type: " + resource->mimeType);
                 headers.emplace_back ("Cache-Control: no-store");
+                headers.emplace_back ("Access-Control-Allow-Origin: *");
 
-                if (! customUserAgent.empty())
-                    headers.emplace_back ("User-Agent: " + customUserAgent);
+                if (! options.customUserAgent.empty())
+                    headers.emplace_back ("User-Agent: " + options.customUserAgent);
 
                 const auto headerString = createUTF16StringFromUTF8 (choc::text::joinStrings (headers, "\n"));
 
@@ -1267,12 +1426,11 @@ private:
     //==============================================================================
     WebView& owner;
     WebViewDLL webviewDLL;
-    Options::FetchResource fetchResource;
+    Options options;
     ICoreWebView2Environment* coreWebViewEnvironment = nullptr;
     ICoreWebView2* coreWebView = nullptr;
     ICoreWebView2Controller* coreWebViewController = nullptr;
     std::atomic_flag webviewInitialising = ATOMIC_FLAG_INIT;
-    std::string customUserAgent;
 
     //==============================================================================
     static std::wstring getUserDataFolder()
@@ -1497,7 +1655,6 @@ inline void WebView::invokeBinding (const std::string& msg)
 
 #if CHOC_WINDOWS
 #include "choc_win_webview_hack.h"
-
 #endif
 
 #endif // CHOC_WEBVIEW_HEADER_INCLUDED
