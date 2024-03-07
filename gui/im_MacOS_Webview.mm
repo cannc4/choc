@@ -145,7 +145,7 @@ namespace choc::ui {
                 NSDictionary* headerFields = @{
                         @"Content-Length": contentLength,
                         @"Content-Type": mimeTypeNS,
-                        @"Cache-Control": @"no-cache",
+                        @"Cache-Control": @"no-store",
                         @"Access-Control-Allow-Origin": @"*",
                 };
 
