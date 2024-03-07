@@ -123,27 +123,9 @@ namespace choc::ui {
         {
             NSURL* requestUrl = task.request.URL;
 
-            auto makeResponse = [&](NSInteger responseCode, NSDictionary* mutableHeaderFields, NSString* contentRange)
+            auto makeResponse = [&](NSInteger responseCode, NSDictionary* mutableHeaderFields)
             {
-                if (responseCode == 206 && contentRange != nil) {
-                    NSMutableDictionary *headerFieldsWithContentRange = [mutableHeaderFields mutableCopy];
-                    [headerFieldsWithContentRange setValue:contentRange forKey:@"Content-Range"];
-                    mutableHeaderFields = [headerFieldsWithContentRange copy];
-                }
-
-                // Add Date header
-                NSDateFormatter *formatter = [[[NSDateFormatter alloc] init] autorelease];
-                formatter.dateFormat = @"EEE, dd MMM yyyy HH:mm:ss 'GMT'";
-                formatter.timeZone = [NSTimeZone timeZoneWithAbbreviation:@"GMT"];
-                NSString *dateString = [formatter stringFromDate:[NSDate date]];
-
-                NSMutableDictionary *headerFieldsWithDate = [mutableHeaderFields mutableCopy];
-                [headerFieldsWithDate setValue:dateString forKey:@"Date"];
-                mutableHeaderFields = [headerFieldsWithDate copy];
-
-                NSString *httpURLString = [[requestUrl absoluteString] stringByReplacingOccurrencesOfString:@"choc://" withString:@"http://localhost:4342/"];
-
-                NSHTTPURLResponse* response = [[[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:httpURLString]
+                NSHTTPURLResponse* response = [[[NSHTTPURLResponse alloc] initWithURL:requestUrl
                                                                            statusCode:responseCode
                                                                           HTTPVersion:@"HTTP/1.1"
                                                                          headerFields:mutableHeaderFields] autorelease];
@@ -154,21 +136,9 @@ namespace choc::ui {
             NSString* path = requestUrl.path;
             std::string pathStr = path.UTF8String;
 
-            NSString* method = task.request.HTTPMethod;
-            std::string methodStr = method.UTF8String;
-
-            // Convert request headers to std::unordered_map
-            NSDictionary* requestHeaders = task.request.allHTTPHeaderFields;
-            std::unordered_map<std::string, std::string> headersMap;
-            for (NSString* key in requestHeaders)
+            if (auto resource = options->fetchResource(pathStr))
             {
-                NSString* value = [requestHeaders objectForKey:key];
-                headersMap[key.UTF8String] = value.UTF8String;
-            }
-
-            if (auto resource = options->fetchResource(pathStr, methodStr, headersMap))
-            {
-                const auto& [bytes, mimeType, contentRange] = *resource;
+                const auto& [bytes, mimeType] = *resource;
 
                 NSString* contentLength = [NSString stringWithFormat:@"%lu", bytes.size()];
                 NSString* mimeTypeNS = [NSString stringWithUTF8String:mimeType.c_str()];
@@ -177,22 +147,16 @@ namespace choc::ui {
                         @"Content-Type": mimeTypeNS,
                         @"Cache-Control": @"no-cache",
                         @"Access-Control-Allow-Origin": @"*",
-                        @"Content-Range": [NSString stringWithUTF8String:contentRange.c_str()],
-                        @"Accept-Ranges": @"bytes",
-                        @"Keep-Alive": @"timeout=5"
                 };
 
-                NSInteger responseCode = contentRange.empty() ? 200 : 206;
-                NSString* contentRangeNS = [NSString stringWithUTF8String:contentRange.c_str()];
-
-                [task didReceiveResponse:makeResponse(responseCode, headerFields, contentRangeNS)];
+                [task didReceiveResponse:makeResponse(200, headerFields)];
 
                 NSData* data = [NSData dataWithBytes:bytes.data() length:bytes.size()];
                 [task didReceiveData:data];
             }
             else
             {
-                [task didReceiveResponse:makeResponse(404, nil, nil)];
+                [task didReceiveResponse:makeResponse(404, nil)];
             }
 
             [task didFinish];

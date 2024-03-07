@@ -97,13 +97,10 @@ public:
         {
             std::vector<uint8_t> data;
             std::string mimeType;
-            std::string contentRange {""};
         };
 
         using Path = std::string;
-        using Method = std::string;
-        using Headers = std::unordered_map<std::string, std::string>;
-        using FetchResource = std::function<std::optional<Resource>(const Path&, const Method& method, const Headers&)>;
+        using FetchResource = std::function<std::optional<Resource>(const Path&)>;
         FetchResource fetchResource;
     };
 
