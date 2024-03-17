@@ -357,7 +357,7 @@ struct choc::ui::WebView::Pimpl
         call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("allowFileAccessFromFileURLs"));
 
         if (options->enableDebugMode)
-            call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("developerExtrasEnabled"));
+            call<void> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("developerExtrasEnabled"));
 
         delegate = createDelegate();
         objc_setAssociatedObject (delegate, "choc_webview", (CHOC_OBJC_CAST_BRIDGED id) this, OBJC_ASSOCIATION_ASSIGN);
