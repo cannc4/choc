@@ -546,7 +546,7 @@ private:
         {
             // NB: it doesn't seem possible to dispose of this class late enough to avoid a warning on shutdown
             // about the KVO system still using it, so unfortunately the only option seems to be to let it leak..
-            // objc_disposeClassPair (webviewClass);
+             objc_disposeClassPair (webviewClass);
         }
 
         Class webviewClass = {};
