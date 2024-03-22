@@ -549,10 +549,16 @@ private:
                 if (path == "v") return sendAppAction (self, "paste:");
                 if (path == "z") return sendAppAction (self, "undo:");
                 if (path == "a") return sendAppAction (self, "selectAll:");
+                if (path == "q") return sendAppAction (self, "stop:");
             }
             else if (flags == (NSEventModifierFlagShift | NSEventModifierFlagCommand))
             {
                 if (path == "Z") return sendAppAction (self, "redo:");
+            }
+            // Check for space key without any modifiers
+            else if (flags == 0 && path == " ") // Check for space character
+            {
+                return sendAppAction (self, "playPause:"); // TODO: action for play/pause
             }
         }
 
