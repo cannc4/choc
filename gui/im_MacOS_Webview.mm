@@ -13,6 +13,10 @@
     return self;
 }
 
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
+
 - (void)setAcceptKeyEvents:(BOOL)accept {
     acceptKeyEvents = accept;
 }
@@ -60,7 +64,7 @@
 }
 
 - (void)keyDown:(NSEvent *)event {
-    if (acceptKeyEvents) {
+    if (acceptKeyEvents || event.keyCode == 53) { // allow ESC
         [super keyDown:event];
     } else {
         [[self nextResponder] keyDown:event];
@@ -79,6 +83,49 @@
     [super interpretKeyEvents:events];
 }
 
+- (BOOL)performKeyEquivalent:(NSEvent *)event
+{
+    NSString *characters = [[event charactersIgnoringModifiers] lowercaseString];
+    NSEventModifierFlags modifiers = [event modifierFlags];
+
+    if ([characters isEqualToString:@"c"] && (modifiers & NSEventModifierFlagCommand))
+    {
+        // Handle copy action
+        [self copy:self];
+        return YES;
+    }
+    else if ([characters isEqualToString:@"v"] && (modifiers & NSEventModifierFlagCommand))
+    {
+        // Handle paste action
+        [self paste:self];
+        return YES;
+    }
+    else if ([characters isEqualToString:@"a"] && (modifiers & NSEventModifierFlagCommand))
+    {
+        // Handle select all action
+        [self selectAll:self];
+        return YES;
+    }
+    else if ([characters isEqualToString:@"z"] && (modifiers & NSEventModifierFlagCommand))
+    {
+        if (modifiers & NSEventModifierFlagShift)
+        {
+            // Handle redo action
+            [self evaluateJavaScript:@"document.execCommand('redo')" completionHandler:nil];
+            return YES;
+        }
+        else
+        {
+            // Handle undo action
+            [self evaluateJavaScript:@"document.execCommand('undo')" completionHandler:nil];
+            return YES;
+        }
+        return YES;
+    }
+
+    return [super performKeyEquivalent:event];
+}
+
 @end
 
 namespace choc::ui {
@@ -92,24 +139,6 @@ namespace choc::ui {
     WebView::Pimpl::WebviewClass::WebviewClass()
     {
         webviewClass = choc::objc::createDelegateClass ("imagiroWebView", "CHOCWebView_");
-
-        class_addMethod (webviewClass, sel_registerName ("acceptsFirstMouse:"),
-                         (IMP) (+[](id self, SEL, id) -> BOOL
-                         {
-                             if (auto p = getPimpl (self))
-                                 return p->options->acceptsFirstMouseClick;
-
-                             return false;
-                         }), "B@:@");
-
-        class_addMethod (webviewClass, sel_registerName ("performKeyEquivalent:"),
-                         (IMP) (+[](id self, SEL, id e) -> BOOL
-                         {
-                             if (auto p = getPimpl (self))
-                                 return p->performKeyEquivalent (self, e);
-
-                             return false;
-                         }), "B@:@");
 
         objc_registerClassPair (webviewClass);
     }
