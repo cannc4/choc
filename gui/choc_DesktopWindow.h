@@ -493,7 +493,7 @@ struct WindowClass
 {
     WindowClass (std::wstring name, WNDPROC wndProc)
     {
-        name += std::to_wstring (rand());
+        name += std::to_wstring (static_cast<uint32_t> (GetTickCount()));
 
         moduleHandle = GetModuleHandle (nullptr);
         auto icon = (HICON) LoadImage (moduleHandle, IDI_APPLICATION, IMAGE_ICON,
@@ -517,7 +517,7 @@ struct WindowClass
 
     ~WindowClass()
     {
-        UnregisterClassW (classAtom, moduleHandle);
+        choc::messageloop::postMessage ([=] { UnregisterClassW (classAtom, moduleHandle); });
     }
 
     HWNDHolder createWindow (DWORD style, int w, int h, void* userData)
@@ -598,6 +598,11 @@ struct DesktopWindow::Pimpl
         ShowWindow (hwnd, SW_SHOW);
         UpdateWindow (hwnd);
         SetFocus (hwnd);
+    }
+
+    ~Pimpl()
+    {
+        hwnd = {};
     }
 
     void* getWindowHandle() const     { return hwnd; }
