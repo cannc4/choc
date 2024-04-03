@@ -476,11 +476,13 @@ struct HWNDHolder
     HWNDHolder (const HWNDHolder&) = delete;
     HWNDHolder& operator= (const HWNDHolder&) = delete;
     HWNDHolder (HWNDHolder&& other) : hwnd (other.hwnd) { other.hwnd = {}; }
-    HWNDHolder& operator= (HWNDHolder&& other)  { hwnd = other.hwnd; other.hwnd = {}; return *this; }
-    ~HWNDHolder() { if (IsWindow (hwnd)) DestroyWindow (hwnd); }
+    HWNDHolder& operator= (HWNDHolder&& other)  { reset(); hwnd = other.hwnd; other.hwnd = {}; return *this; }
+    ~HWNDHolder() { reset(); }
 
     operator HWND() const  { return hwnd; }
     operator void*() const  { return (void*) hwnd; }
+
+    void reset() { if (IsWindow (hwnd)) DestroyWindow (hwnd); hwnd = {}; }
 
     HWND hwnd = {};
 };
@@ -489,7 +491,7 @@ struct WindowClass
 {
     WindowClass (std::wstring name, WNDPROC wndProc)
     {
-        name += std::to_wstring (rand());
+        name += std::to_wstring (static_cast<uint32_t> (GetTickCount()));
 
         moduleHandle = GetModuleHandle (nullptr);
         auto icon = (HICON) LoadImage (moduleHandle, IDI_APPLICATION, IMAGE_ICON,
@@ -594,6 +596,11 @@ struct DesktopWindow::Pimpl
         ShowWindow (hwnd, SW_SHOW);
         UpdateWindow (hwnd);
         SetFocus (hwnd);
+    }
+
+    ~Pimpl()
+    {
+        hwnd.reset();
     }
 
     void* getWindowHandle() const     { return hwnd; }

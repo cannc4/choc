@@ -1130,6 +1130,8 @@ struct WebView::Pimpl
             coreWebViewEnvironment->Release();
             coreWebViewEnvironment = nullptr;
         }
+
+        hwnd.reset();
     }
 
     static constexpr const char* postMessageFn = "window.chrome.webview.postMessage";
