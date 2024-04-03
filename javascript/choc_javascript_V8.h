@@ -127,41 +127,7 @@ struct V8Context  : public Context::Pimpl
         delete createParams.array_buffer_allocator;
     }
 
-    choc::value::Value evaluateExpression (const std::string& code) override
-    {
-        v8::Isolate::Scope isolateScope (isolate);
-        v8::HandleScope handleScope (isolate);
-        auto localContext = context.Get (isolate);
-        v8::Context::Scope contextScope (localContext);
-        v8::TryCatch tryCatch (isolate);
-
-        auto handleError = [&]
-        {
-            auto exception = getExceptionMessage (tryCatch, localContext);
-
-            if (exception.empty())
-                exception = "Unknown error";
-
-            throw choc::javascript::Error (exception);
-        };
-
-        auto source = stringToV8 (code);
-        v8::MaybeLocal<v8::Value> result;
-
-        auto script = v8::Script::Compile (localContext, source);
-
-        if (script.IsEmpty())
-            handleError();
-
-        result = script.ToLocalChecked()->Run (localContext);
-
-        if (result.IsEmpty())
-            handleError();
-
-        return v8ToChoc (localContext, result.ToLocalChecked());
-    }
-
-    void run (const std::string& code, Context::ReadModuleContentFn* resolveModule, Context::CompletionHandler handleResult) override
+    choc::value::Value evaluate (const std::string& code, Context::ReadModuleContentFn* resolveModule) override
     {
         v8::Isolate::Scope isolateScope (isolate);
         v8::HandleScope handleScope (isolate);
@@ -177,8 +143,7 @@ struct V8Context  : public Context::Pimpl
             if (exception.empty())
                 exception = "Unknown error";
 
-            if (handleResult)
-                handleResult (exception, {});
+            throw choc::javascript::Error (exception);
         };
 
         auto source = stringToV8 (code);
@@ -191,7 +156,7 @@ struct V8Context  : public Context::Pimpl
             auto mod = loadModule (localContext, source);
 
             if (mod.IsEmpty())
-                return handleError();
+                handleError();
 
             result = mod.ToLocalChecked()->Evaluate (localContext);
         }
@@ -200,16 +165,15 @@ struct V8Context  : public Context::Pimpl
             auto script = v8::Script::Compile (localContext, source);
 
             if (script.IsEmpty())
-                return handleError();
+                handleError();
 
             result = script.ToLocalChecked()->Run (localContext);
         }
 
         if (result.IsEmpty())
-            return handleError();
+            handleError();
 
-        if (handleResult)
-            handleResult ({}, v8ToChoc (localContext, result.ToLocalChecked()));
+        return v8ToChoc (localContext, result.ToLocalChecked());
     }
 
     void pushObjectOrArray (const choc::value::ValueView& v) override

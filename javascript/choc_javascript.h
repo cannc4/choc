@@ -96,37 +96,23 @@ namespace choc::javascript
         /// Returns true if the context is valid.
         operator bool() const                               { return pimpl != nullptr; }
 
-        //==============================================================================
-        /// This callback is used by the run() method.
-        using CompletionHandler = std::function<void(const std::string& error,
-                                                     const choc::value::ValueView& result)>;
-
-        /// Executes some javascript asynchronously.
-        /// If a CompletionHandler callback is provided, it will be called asynchronously
-        /// with the return value and any errors that occurred. Note that if you want to execute
-        /// the script as a module, use runModule() instead.
-        void run (const std::string& javascriptCode,
-                  CompletionHandler handleResult = {});
-
         /// When parsing modules, this function is expected to take a path to a module, and
         /// to return the content of that module, or an empty optional if not found.
         using ReadModuleContentFn = std::function<std::optional<std::string>(std::string_view)>;
 
-        /// This callback will asynchronously parse the script as a module, and will use the
-        /// ReadModuleContentFn functor to resolve any imported modules that it needs. If a
-        /// CompletionHandler callback is provided, it will be called asynchronously with the
-        /// return value and any errors that occurred.
-        /// NB: Not all engines support modules.
-        void runModule (const std::string& moduleCode,
-                        ReadModuleContentFn,
-                        CompletionHandler handleResult = {});
-
-        /// Evaluates a javascript expression synchronously, and returns the result.
+        //==============================================================================
+        /// Evaluates the given chunk of javascript.
         /// If there are any parse errors, this will throw a choc::javascript::Error exception.
-        /// Note that if you want to execute the script as a module, use runModule() instead.
-        choc::value::Value evaluateExpression (const std::string& javascriptCode);
+        /// If the engine supports modules, then providing a value for the resolveModuleContent
+        /// function will treat the code as a module and will call your function to read the
+        /// content of any dependencies.
+        /// None of the methods in this class are either thread-safe or realtime-safe, so you'll
+        /// need to organise your own locking if you're calling into a single Context from
+        /// multiple threads.
+        choc::value::Value evaluate (const std::string& javascriptCode,
+                                     ReadModuleContentFn* resolveModuleContent = nullptr);
 
-        /// Attempts to synchronously invoke a global function with no arguments.
+        /// Attempts to invoke a global function with no arguments.
         /// Any errors will throw a choc::javascript::Error exception.
         /// None of the methods in this class are either thread-safe or realtime-safe, so you'll
         /// need to organise your own locking if you're calling into a single Context from
@@ -223,8 +209,7 @@ struct Context::Pimpl
     virtual ~Pimpl() = default;
 
     virtual void registerFunction (const std::string&, NativeFunction) = 0;
-    virtual choc::value::Value evaluateExpression (const std::string&) = 0;
-    virtual void run (const std::string&, ReadModuleContentFn*, CompletionHandler) = 0;
+    virtual choc::value::Value evaluate (const std::string&, ReadModuleContentFn*) = 0;
     virtual void prepareForCall (std::string_view, uint32_t numArgs) = 0;
     virtual choc::value::Value performCall() = 0;
     virtual void pushObjectOrArray (const choc::value::ValueView&) = 0;
@@ -294,22 +279,10 @@ inline void Context::registerFunction (const std::string& name, NativeFunction f
     pimpl->registerFunction (name, std::move (fn));
 }
 
-inline choc::value::Value Context::evaluateExpression (const std::string& javascriptCode)
+inline choc::value::Value Context::evaluate (const std::string& javascriptCode, ReadModuleContentFn* resolveModule)
 {
     CHOC_ASSERT (pimpl != nullptr); // cannot call this on a moved-from context!
-    return pimpl->evaluateExpression (javascriptCode);
-}
-
-inline void Context::run (const std::string& javascriptCode, CompletionHandler handleResult)
-{
-    CHOC_ASSERT (pimpl != nullptr); // cannot call this on a moved-from context!
-    pimpl->run (javascriptCode, nullptr, std::move (handleResult));
-}
-
-inline void Context::runModule (const std::string& moduleCode, ReadModuleContentFn readModule, CompletionHandler handleResult)
-{
-    CHOC_ASSERT (pimpl != nullptr); // cannot call this on a moved-from context!
-    pimpl->run (moduleCode, std::addressof (readModule), std::move (handleResult));
+    return pimpl->evaluate (javascriptCode, resolveModule);
 }
 
 inline void Context::pumpMessageLoop()

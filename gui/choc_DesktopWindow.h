@@ -69,14 +69,11 @@ struct DesktopWindow
     /// Shows or hides the window. It's visible by default when created.
     void setVisible (bool visible);
 
-    /// Changes the window's position
-    void setBounds (Bounds);
-
     /// Enables/disables user resizing of the window
     void setResizable (bool);
 
-    /// Enables/disables the window's close button (if applicable).
-    void setClosable (bool);
+    /// Changes the window's position
+    void setBounds (Bounds);
 
     /// Gives the window a given size and positions it in the middle of the
     /// default monitor
@@ -188,8 +185,10 @@ struct choc::ui::DesktopWindow::Pimpl
             gtk_widget_hide (window);
     }
 
-    void setResizable (bool b) { gtk_window_set_resizable (GTK_WINDOW (window), b); }
-    void setClosable (bool b)  { gtk_window_set_deletable (GTK_WINDOW (window), b); }
+    void setResizable (bool b)
+    {
+        gtk_window_set_resizable (GTK_WINDOW (window), b);
+    }
 
     void setMinimumSize (int w, int h)
     {
@@ -282,7 +281,6 @@ struct DesktopWindow::Pimpl
                            NSWindowStyleMaskTitled, NSBackingStoreBuffered, (int) 0);
 
         delegate = createDelegate();
-        setStyleBit (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable, true);
         objc_setAssociatedObject (delegate, "choc_window", (CHOC_OBJC_CAST_BRIDGED id) this, OBJC_ASSOCIATION_ASSIGN);
         call<void> (window, "setDelegate:", delegate);
         CHOC_AUTORELEASE_END
@@ -320,17 +318,15 @@ struct DesktopWindow::Pimpl
         CHOC_AUTORELEASE_END
     }
 
-    void setStyleBit (long bit, bool shouldEnable)
+    void setResizable (bool b)
     {
         CHOC_AUTORELEASE_BEGIN
-        auto style = objc::call<unsigned long> (window, "styleMask");
-        style = shouldEnable ? (style | (unsigned long) bit) : (style & ~(unsigned long) bit);
-        objc::call<void> (window, "setStyleMask:", style);
+        auto style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable
+                        | (b ? NSWindowStyleMaskResizable : 0);
+
+        objc::call<void> (window, "setStyleMask:", (unsigned long) style);
         CHOC_AUTORELEASE_END
     }
-
-    void setResizable (bool b) { setStyleBit (NSWindowStyleMaskResizable, b); }
-    void setClosable (bool b)  { setStyleBit (NSWindowStyleMaskClosable, b); }
 
     void setMinimumSize (int w, int h) { CHOC_AUTORELEASE_BEGIN objc::call<void> (window, "setContentMinSize:", createCGSize (w, h)); CHOC_AUTORELEASE_END }
     void setMaximumSize (int w, int h) { CHOC_AUTORELEASE_BEGIN objc::call<void> (window, "setContentMaxSize:", createCGSize (w, h)); CHOC_AUTORELEASE_END }
@@ -493,7 +489,7 @@ struct WindowClass
 {
     WindowClass (std::wstring name, WNDPROC wndProc)
     {
-        name += std::to_wstring (static_cast<uint32_t> (GetTickCount()));
+        name += std::to_wstring (rand());
 
         moduleHandle = GetModuleHandle (nullptr);
         auto icon = (HICON) LoadImage (moduleHandle, IDI_APPLICATION, IMAGE_ICON,
@@ -517,7 +513,7 @@ struct WindowClass
 
     ~WindowClass()
     {
-        choc::messageloop::postMessage ([=] { UnregisterClassW (classAtom, moduleHandle); });
+        UnregisterClassW (classAtom, moduleHandle);
     }
 
     HWNDHolder createWindow (DWORD style, int w, int h, void* userData)
@@ -600,11 +596,6 @@ struct DesktopWindow::Pimpl
         SetFocus (hwnd);
     }
 
-    ~Pimpl()
-    {
-        hwnd = {};
-    }
-
     void* getWindowHandle() const     { return hwnd; }
 
     void setWindowTitle (const std::string& newTitle)
@@ -648,13 +639,6 @@ struct DesktopWindow::Pimpl
             style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
 
         SetWindowLong (hwnd, GWL_STYLE, style);
-    }
-
-    void setClosable (bool closable)
-    {
-        EnableMenuItem (GetSystemMenu (hwnd, FALSE), SC_CLOSE,
-                        closable ? (MF_BYCOMMAND | MF_ENABLED)
-                                 : (MF_BYCOMMAND | MF_DISABLED | MF_GRAYED));
     }
 
     void setMinimumSize (int w, int h)
@@ -817,7 +801,6 @@ inline void DesktopWindow::setWindowTitle (const std::string& title)       { pim
 inline void DesktopWindow::setMinimumSize (int w, int h)                   { pimpl->setMinimumSize (w, h); }
 inline void DesktopWindow::setMaximumSize (int w, int h)                   { pimpl->setMaximumSize (w, h); }
 inline void DesktopWindow::setResizable (bool b)                           { pimpl->setResizable (b); }
-inline void DesktopWindow::setClosable (bool b)                            { pimpl->setClosable (b); }
 inline void DesktopWindow::setBounds (Bounds b)                            { pimpl->setBounds (b); }
 inline void DesktopWindow::centreWithSize (int w, int h)                   { pimpl->centreWithSize (w, h); }
 inline void DesktopWindow::toFront()                                       { pimpl->toFront(); }
