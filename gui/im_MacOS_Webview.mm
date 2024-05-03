@@ -85,6 +85,10 @@
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
+    if (!acceptKeyEvents) {
+        return NO;
+    }
+
     NSString *characters = [[event charactersIgnoringModifiers] lowercaseString];
     NSEventModifierFlags modifiers = [event modifierFlags];
 
