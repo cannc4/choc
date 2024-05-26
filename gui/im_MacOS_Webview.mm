@@ -31,7 +31,7 @@
         return @"[]"; // Return an empty array representation in case of error
     }
 
-    return [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    return [[[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] autorelease];
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {

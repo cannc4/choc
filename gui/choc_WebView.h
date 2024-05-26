@@ -358,7 +358,8 @@ struct choc::ui::WebView::Pimpl
         using namespace choc::objc;
         CHOC_AUTORELEASE_BEGIN
 
-        id config = call<id> (getClass ("WKWebViewConfiguration"), "new");
+        id config = call<id> (getClass ("WKWebViewConfiguration"), "alloc");
+        config = call<id> (config, "init");
 
         id prefs = call<id> (config, "preferences");
         call<id> (prefs, "setValue:forKey:", getNSNumberBool (true), getNSString ("fullScreenEnabled"));
