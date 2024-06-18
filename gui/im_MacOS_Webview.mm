@@ -37,7 +37,7 @@
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
     NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragDrop(%@)", jsonString];
+    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragEnter(%@)", jsonString];
     [self evaluateJavaScript:jsCode completionHandler:nil];
 
     return [super draggingEntered:sender];
@@ -53,7 +53,7 @@
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
     NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragDrop(%@)", jsonString];
+    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragOver(%@)", jsonString];
     [self evaluateJavaScript:jsCode completionHandler:nil];
 
     return [super draggingUpdated:sender];
