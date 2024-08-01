@@ -1477,21 +1477,21 @@ inline WebView::WebView (const Options& options)
         pimpl.reset();
 
     bind("juce_enableKeyEvents", [&](const choc::value::ValueView &args) -> choc::value::Value {
-#if JUCE_MAC
+#if CHOC_APPLE
         pimpl->setAcceptKeyEvents(args[0].getWithDefault(false));
 #endif
         return {};
     });
 
     bind("juce_onKeyDown", [&](const choc::value::ValueView &args) -> choc::value::Value {
-#if JUCE_WINDOWS
+#if CHOC_WINDOWS
         pimpl->onJSKeyDown(args[0].getWithDefault(""));
 #endif
         return {};
     });
 
     bind("juce_onKeyUp", [&](const choc::value::ValueView &args) -> choc::value::Value {
-#if JUCE_WINDOWS
+#if CHOC_WINDOWS
         pimpl->onJSKeyUp(args[0].getWithDefault(""));
 #endif
         return {};
