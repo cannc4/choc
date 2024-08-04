@@ -69,7 +69,17 @@
 }
 
 - (void)keyDown:(NSEvent *)event {
-    if (acceptKeyEvents || event.keyCode == 53) { // allow ESC
+    // letting ESC pass through to Ableton on an AU seems to crash Ableton.
+    // my hunch is that it comes from here: https://github.com/juce-framework/JUCE/blob/46c2a95905abffe41a7aa002c70fb30bd3b626ef/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm#L1718
+    // because that code might call makeFirstResponder on a deleted view, as the host would've just deleted the view becasue of the ESC
+    // but in theory this would break on all other plugins, so idk why its just for webview
+    if (event.keyCode == 53) {
+        NSString *jsCode = @"window.ui.onEscapeKeyDown()";
+        [self evaluateJavaScript:jsCode completionHandler:nil];
+        return;
+    }
+
+    if (acceptKeyEvents) {
         [super keyDown:event];
     } else {
         [[self nextResponder] keyDown:event];
@@ -77,6 +87,12 @@
 }
 
 - (void)keyUp:(NSEvent *)event {
+    if (event.keyCode == 53) {
+        NSString *jsCode = @"window.ui.onEscapeKeyUp()";
+        [self evaluateJavaScript:jsCode completionHandler:nil];
+        return;
+    }
+
     if (acceptKeyEvents) {
         [super keyUp:event];
     } else {
@@ -90,12 +106,13 @@
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
-    if (!acceptKeyEvents) {
-        return NO;
-    }
 
     NSString *characters = [[event charactersIgnoringModifiers] lowercaseString];
     NSEventModifierFlags modifiers = [event modifierFlags];
+
+    if (!acceptKeyEvents) {
+        return NO;
+    }
 
     if ([characters isEqualToString:@"c"] && (modifiers & NSEventModifierFlagCommand))
     {
