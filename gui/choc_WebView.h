@@ -1512,13 +1512,13 @@ inline bool WebView::evaluateJavascript (const std::string& script)  { return pi
 inline void* WebView::getViewHandle() const                          { return pimpl != nullptr ? pimpl->getViewHandle() : nullptr; }
 
 inline void WebView::addKeyListener(choc::ui::WebView::KeyListener *l) {
-#if JUCE_WINDOWS
+#if CHOC_WINDOWS
     if (pimpl != nullptr) pimpl->addKeyListener(l);
 #endif
 }
 
 inline void WebView::removeKeyListener(choc::ui::WebView::KeyListener *l) {
-#if JUCE_WINDOWS
+#if CHOC_WINDOWS
     if (pimpl != nullptr) pimpl->removeKeyListener(l);
 #endif
 }
