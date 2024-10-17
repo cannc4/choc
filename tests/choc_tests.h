@@ -19,6 +19,7 @@
 #ifndef CHOC_TESTS_HEADER_INCLUDED
 #define CHOC_TESTS_HEADER_INCLUDED
 
+#include "../platform/choc_BuildDate.h"
 #include "../containers/choc_ZipFile.h"
 #include "../platform/choc_FileWatcher.h"
 #include "../threading/choc_ThreadSafeFunctor.h"
@@ -138,6 +139,13 @@ inline void testPlatform (choc::test::TestProgress& progress)
     {
         CHOC_TEST (DetectDebugger)
         CHOC_EXPECT_FALSE (choc::isDebuggerActive());
+    }
+
+    {
+        CHOC_TEST (BuildDate)
+        // For the purpose of testing, we'll assume you always do a fresh build
+        // before running this.
+        CHOC_EXPECT_TRUE (choc::getDaysSinceBuildDate() < 5);
     }
 
     {
@@ -2849,10 +2857,10 @@ inline void testThreading (choc::test::TestProgress& progress)
         {
             std::this_thread::sleep_for (std::chrono::milliseconds (5));
 
-            if (numCallbacks1 == 3)
+            if (numCallbacks1 == 3 && numCallbacks2 == 1)
                 break;
 
-            if (i > 100)
+            if (i > 500)
                 CHOC_FAIL ("Expected some callbacks");
         }
 
@@ -3171,7 +3179,7 @@ static void testHTTPServer (choc::test::TestProgress& progress)
                 [] (boost::beast::websocket::request_type& req)
                 {
                     req.set (boost::beast::http::field::user_agent,
-                        std::string (BOOST_BEAST_VERSION_STRING) + " websocket-client-coro");
+                             std::string (BOOST_BEAST_VERSION_STRING) + " websocket-client-coro");
                 }));
 
             // Perform the websocket handshake
@@ -3236,7 +3244,7 @@ static void testHTTPServer (choc::test::TestProgress& progress)
 
                 // Prepare another read callback to be processed by the thread
                 ws.async_read (destBuffer,
-                            [this] (auto code, auto bytes) { readMessage (code, bytes); });
+                               [this] (auto code, auto bytes) { readMessage (code, bytes); });
             }
         }
     };
