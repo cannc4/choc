@@ -2320,7 +2320,11 @@ inline StringDictionary::Handle ValueView::getStringHandle() const
 
 inline std::string_view ValueView::getString() const
 {
-    check (stringDictionary != nullptr, "No string dictionary supplied");
+    // To satisfy the MSVC code analyser this check needs to be handled directly
+    // from this function
+    if (stringDictionary == nullptr)
+        throwError ("No string dictionary supplied");
+
     return stringDictionary->getStringForHandle (getStringHandle());
 }
 
@@ -2428,6 +2432,7 @@ void ValueView::serialise (OutputStream& output) const
         return;
 
     auto dataSize = type.getValueDataSize();
+    check (dataSize > 0, "Invalid data size");
 
     if (stringDictionary == nullptr || ! type.usesStrings())
     {
@@ -2435,12 +2440,18 @@ void ValueView::serialise (OutputStream& output) const
         return;
     }
 
-    static constexpr uint32_t maximumSize = 16384;
+   #if defined (_MSC_VER)
+    #pragma warning (push)
+    #pragma warning (disable: 6255)
+    auto* localCopy = (uint8_t*) _alloca (dataSize);
+    #pragma warning (pop)
+   #elif defined (__MINGW32__)
+    auto* localCopy = (uint8_t*) _alloca (dataSize);
+   #else
+    auto* localCopy = (uint8_t*) alloca (dataSize);
+   #endif
 
-    if (dataSize > maximumSize)
-        throwError ("Out of local scratch space");
-
-    uint8_t localCopy[maximumSize];
+    check (localCopy != nullptr, "Stack allocation failed");
     std::memcpy (localCopy, data, dataSize);
 
     static constexpr uint32_t maxStrings = 128;

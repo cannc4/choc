@@ -73,6 +73,9 @@
  #pragma GCC diagnostic ignored "-Wuse-after-free"
  #pragma GCC diagnostic ignored "-Warray-bounds"
  #pragma GCC diagnostic ignored "-Wvolatile"
+ #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+ #pragma GCC diagnostic ignored "-Wfloat-equal"
+ #pragma GCC diagnostic ignored "-Wpedantic"
  #ifndef __MINGW32__
   #pragma GCC diagnostic ignored "-Wredundant-move"
  #endif
