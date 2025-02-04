@@ -491,7 +491,7 @@ struct choc::ui::WebView::Pimpl
 
         defaultURI = getURIHome(*options);
 
-        id config = call<id>(getClass("WKWebViewConfiguration"), "alloc");
+        id config = callClass<id>("WKWebViewConfiguration", "alloc");
         config = call<id>(config, "init");
 
         id prefs = call<id>(config, "preferences");
