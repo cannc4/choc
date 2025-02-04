@@ -77,12 +77,6 @@
 }
 
 - (void)keyUp:(NSEvent *)event {
-    if (event.keyCode == 53) {
-        NSString *jsCode = @"window.ui.onEscapeKeyUp()";
-        [self evaluateJavaScript:jsCode completionHandler:nil];
-        return;
-    }
-
     if (acceptKeyEvents) {
         [super keyUp:event];
     } else {
