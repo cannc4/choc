@@ -19,7 +19,11 @@
 #ifndef CHOC_DESKTOPWINDOW_HEADER_INCLUDED
 #define CHOC_DESKTOPWINDOW_HEADER_INCLUDED
 
+#include <memory>
+#include <string>
+#include <functional>
 #include "../platform/choc_Platform.h"
+#include "../platform/choc_Assert.h"
 
 
 //==============================================================================
@@ -247,24 +251,6 @@ inline void choc::ui::setWindowsDPIAwareness() {}
 namespace choc::ui
 {
 
-namespace
-{
-    // Including CodeGraphics.h can create all kinds of messy C/C++ symbol clashes
-    // with other headers, but all we actually need are these coordinate structs:
-   #if defined (__LP64__) && __LP64__
-    using CGFloat = double;
-   #else
-    using CGFloat = float;
-   #endif
-
-    struct CGPoint { CGFloat x = 0, y = 0; };
-    struct CGSize  { CGFloat width = 0, height = 0; };
-    struct CGRect  { CGPoint origin; CGSize size; };
-}
-
-static inline CGSize createCGSize (double w, double h)  { return { (CGFloat) w, (CGFloat) h }; }
-static inline CGRect createCGRect (choc::ui::Bounds b)  { return { { (CGFloat) b.x, (CGFloat) b.y }, { (CGFloat) b.width, (CGFloat) b.height } }; }
-
 inline void setWindowsDPIAwareness() {}
 
 struct DesktopWindow::Pimpl
@@ -275,13 +261,13 @@ struct DesktopWindow::Pimpl
         CHOC_AUTORELEASE_BEGIN
         call<void> (getSharedNSApplication(), "setActivationPolicy:", NSApplicationActivationPolicyRegular);
 
-        window = call<id> (call<id> (getClass ("NSWindow"), "alloc"),
+        window = call<id> (callClass<id> ("NSWindow", "alloc"),
                            "initWithContentRect:styleMask:backing:defer:",
                            createCGRect (bounds),
                            NSWindowStyleMaskTitled, NSBackingStoreBuffered, (int) 0);
 
         delegate = createDelegate();
-        objc_setAssociatedObject (delegate, "choc_window", (id) this, OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject (delegate, "choc_window", (CHOC_OBJC_CAST_BRIDGED id) this, OBJC_ASSOCIATION_ASSIGN);
         call<void> (window, "setDelegate:", delegate);
         CHOC_AUTORELEASE_END
     }
@@ -295,7 +281,7 @@ struct DesktopWindow::Pimpl
         CHOC_AUTORELEASE_END
     }
 
-    void* getWindowHandle() const     { return (void*) window; }
+    void* getWindowHandle() const     { return (CHOC_OBJC_CAST_BRIDGED void*) window; }
 
     void setWindowTitle (const std::string& newTitle)
     {
@@ -307,7 +293,7 @@ struct DesktopWindow::Pimpl
     void setContent (void* view)
     {
         CHOC_AUTORELEASE_BEGIN
-        objc::call<void> (window, "setContentView:", (id) view);
+        objc::call<void> (window, "setContentView:", (CHOC_OBJC_CAST_BRIDGED id) view);
         CHOC_AUTORELEASE_END
     }
 
@@ -331,9 +317,9 @@ struct DesktopWindow::Pimpl
     void setMinimumSize (int w, int h) { CHOC_AUTORELEASE_BEGIN objc::call<void> (window, "setContentMinSize:", createCGSize (w, h)); CHOC_AUTORELEASE_END }
     void setMaximumSize (int w, int h) { CHOC_AUTORELEASE_BEGIN objc::call<void> (window, "setContentMaxSize:", createCGSize (w, h)); CHOC_AUTORELEASE_END }
 
-    CGRect getFrameRectForContent (Bounds b)
+    objc::CGRect getFrameRectForContent (Bounds b)
     {
-        return objc::call<CGRect> (window, "frameRectForContentRect:", createCGRect (b));
+        return objc::call<objc::CGRect> (window, "frameRectForContentRect:", createCGRect (b));
     }
 
     void centreWithSize (int w, int h)
@@ -361,7 +347,7 @@ struct DesktopWindow::Pimpl
 
     static Pimpl& getPimplFromContext (id self)
     {
-        auto view = (Pimpl*) objc_getAssociatedObject (self, "choc_window");
+        auto view = (CHOC_OBJC_CAST_BRIDGED Pimpl*) objc_getAssociatedObject (self, "choc_window");
         CHOC_ASSERT (view != nullptr);
         return *view;
     }
@@ -385,35 +371,35 @@ struct DesktopWindow::Pimpl
                 class_addProtocol (delegateClass, p);
 
             class_addMethod (delegateClass, sel_registerName ("windowShouldClose:"),
-                            (IMP) (+[](id self, SEL, id) -> BOOL
-                            {
-                                CHOC_AUTORELEASE_BEGIN
-                                auto& p = getPimplFromContext (self);
-                                p.window = {};
+                             (IMP) (+[](id self, SEL, id) -> BOOL
+                             {
+                                 CHOC_AUTORELEASE_BEGIN
+                                 auto& p = getPimplFromContext (self);
+                                 p.window = {};
 
-                                if (auto callback = p.owner.windowClosed)
-                                    choc::messageloop::postMessage ([callback] { callback(); });
+                                 if (auto callback = p.owner.windowClosed)
+                                     choc::messageloop::postMessage ([callback] { callback(); });
 
-                                CHOC_AUTORELEASE_END
-                                return TRUE;
-                            }),
-                            "c@:@");
+                                 CHOC_AUTORELEASE_END
+                                 return TRUE;
+                             }),
+                             "c@:@");
 
             class_addMethod (delegateClass, sel_registerName ("windowDidResize:"),
-                            (IMP) (+[](id self, SEL, id)
-                            {
-                                CHOC_AUTORELEASE_BEGIN
+                             (IMP) (+[](id self, SEL, id)
+                             {
+                                 CHOC_AUTORELEASE_BEGIN
 
-                                if (auto callback = getPimplFromContext (self).owner.windowResized)
-                                    callback();
+                                 if (auto callback = getPimplFromContext (self).owner.windowResized)
+                                     callback();
 
-                                CHOC_AUTORELEASE_END
-                            }),
-                            "v@:@");
+                                 CHOC_AUTORELEASE_END
+                             }),
+                             "v@:@");
 
             class_addMethod (delegateClass, sel_registerName ("applicationShouldTerminateAfterLastWindowClosed:"),
-                            (IMP) (+[](id, SEL, id) -> BOOL { return 0; }),
-                            "c@:@");
+                             (IMP) (+[](id, SEL, id) -> BOOL { return 0; }),
+                             "c@:@");
 
             objc_registerClassPair (delegateClass);
         }
@@ -432,6 +418,9 @@ struct DesktopWindow::Pimpl
     static constexpr long NSWindowStyleMaskClosable = 2;
     static constexpr long NSBackingStoreBuffered = 2;
     static constexpr long NSApplicationActivationPolicyRegular = 0;
+
+    static objc::CGSize createCGSize (double w, double h)  { return { (objc::CGFloat) w, (objc::CGFloat) h }; }
+    static objc::CGRect createCGRect (choc::ui::Bounds b)  { return { { (objc::CGFloat) b.x, (objc::CGFloat) b.y }, { (objc::CGFloat) b.width, (objc::CGFloat) b.height } }; }
 };
 
 } // namespace choc::ui
@@ -446,6 +435,8 @@ struct DesktopWindow::Pimpl
 #define Rectangle Rectangle_renamed_to_avoid_name_collisions
 #include <windows.h>
 #undef Rectangle
+
+#include "../platform/choc_DynamicLibrary.h"
 
 namespace choc::ui
 {
@@ -476,11 +467,13 @@ struct HWNDHolder
     HWNDHolder (const HWNDHolder&) = delete;
     HWNDHolder& operator= (const HWNDHolder&) = delete;
     HWNDHolder (HWNDHolder&& other) : hwnd (other.hwnd) { other.hwnd = {}; }
-    HWNDHolder& operator= (HWNDHolder&& other)  { hwnd = other.hwnd; other.hwnd = {}; return *this; }
-    ~HWNDHolder() { if (IsWindow (hwnd)) DestroyWindow (hwnd); }
+    HWNDHolder& operator= (HWNDHolder&& other)  { reset(); hwnd = other.hwnd; other.hwnd = {}; return *this; }
+    ~HWNDHolder() { reset(); }
 
     operator HWND() const  { return hwnd; }
     operator void*() const  { return (void*) hwnd; }
+
+    void reset() { if (IsWindow (hwnd)) DestroyWindow (hwnd); hwnd = {}; }
 
     HWND hwnd = {};
 };
@@ -489,7 +482,7 @@ struct WindowClass
 {
     WindowClass (std::wstring name, WNDPROC wndProc)
     {
-        name += std::to_wstring (rand());
+        name += std::to_wstring (static_cast<uint32_t> (GetTickCount()));
 
         moduleHandle = GetModuleHandle (nullptr);
         auto icon = (HICON) LoadImage (moduleHandle, IDI_APPLICATION, IMAGE_ICON,
@@ -594,6 +587,11 @@ struct DesktopWindow::Pimpl
         ShowWindow (hwnd, SW_SHOW);
         UpdateWindow (hwnd);
         SetFocus (hwnd);
+    }
+
+    ~Pimpl()
+    {
+        hwnd.reset();
     }
 
     void* getWindowHandle() const     { return hwnd; }
