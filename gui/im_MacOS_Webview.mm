@@ -42,7 +42,12 @@
     }
 
     NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragEnter === 'function') { window.ui.handleDragEnter(%@) }", jsonString];
+    NSPoint dragPoint = [sender draggingLocation];
+
+    // Convert coordinates from window space to view space
+    NSPoint localPoint = [self convertPoint:dragPoint fromView:nil];
+
+    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragEnter === 'function') { window.ui.handleDragEnter(%@, %f, %f) }", jsonString, localPoint.x, localPoint.y];
     [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
         if (error) {
             NSLog(@"Drag enter error: %@", error);
@@ -78,7 +83,12 @@
     }
 
     NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragOver === 'function') { window.ui.handleDragOver(%@) }", jsonString];
+    NSPoint dragPoint = [sender draggingLocation];
+
+    // Convert coordinates from window space to view space
+    NSPoint localPoint = [self convertPoint:dragPoint fromView:nil];
+
+    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragOver === 'function') { window.ui.handleDragOver(%@, %f, %f) }", jsonString, localPoint.x, localPoint.y];
     [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
         if (error) {
             NSLog(@"Drag over error: %@", error);
@@ -96,7 +106,12 @@
     }
 
     NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragDrop === 'function') { window.ui.handleDragDrop(%@) }", jsonString];
+    NSPoint dragPoint = [sender draggingLocation];
+
+    // Convert coordinates from window space to view space
+    NSPoint localPoint = [self convertPoint:dragPoint fromView:nil];
+
+    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragDrop === 'function') { window.ui.handleDragDrop(%@, %f, %f) }", jsonString, localPoint.x, localPoint.y];
     [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
         if (error) {
             NSLog(@"Drag drop error: %@", error);
