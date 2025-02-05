@@ -7,7 +7,7 @@
 - (instancetype)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration {
     self = [super initWithFrame:frame configuration:configuration];
     if (self) {
-        [self registerForDraggedTypes:@[NSFilenamesPboardType]];
+        [self registerForDraggedTypes:@[(id)kUTTypeFileURL, NSPasteboardTypeFileURL, NSFilenamesPboardType]];
         acceptKeyEvents = NO;
     }
     return self;
@@ -35,37 +35,75 @@
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+    // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragEnter(%@)", jsonString];
-    [self evaluateJavaScript:jsCode completionHandler:nil];
+    if (!filePaths || filePaths.count == 0) {
+        return [super draggingEntered:sender];
+    }
 
-    return [super draggingEntered:sender];
+    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
+    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragEnter === 'function') { window.ui.handleDragEnter(%@) }", jsonString];
+    [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
+        if (error) {
+            NSLog(@"Drag enter error: %@", error);
+        }
+    }];
+
+    return NSDragOperationCopy;
 }
 
 - (void)draggingExited:(id<NSDraggingInfo>)sender {
-    NSString *jsCode = @"window.ui.handleDragLeave()";
-    [self evaluateJavaScript:jsCode completionHandler:nil];
+    // Check if this is a file drag
+    NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
+    if (!filePaths || filePaths.count == 0) {
+        [super draggingExited:sender];
+        return;
+    }
 
-    return [super draggingExited:sender];
+    NSString *jsCode = @"if (window.ui && typeof window.ui.handleDragLeave === 'function') { window.ui.handleDragLeave() }";
+    [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
+        if (error) {
+            NSLog(@"Drag exit error: %@", error);
+        }
+    }];
+
+    [super draggingExited:sender];
 }
 
 - (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+    // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragOver(%@)", jsonString];
-    [self evaluateJavaScript:jsCode completionHandler:nil];
+    if (!filePaths || filePaths.count == 0) {
+        return [super draggingUpdated:sender];
+    }
 
-    return [super draggingUpdated:sender];
+    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
+    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragOver === 'function') { window.ui.handleDragOver(%@) }", jsonString];
+    [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
+        if (error) {
+            NSLog(@"Drag over error: %@", error);
+        }
+    }];
+
+    return NSDragOperationCopy;
 }
 
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+    // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragDrop(%@)", jsonString];
-    [self evaluateJavaScript:jsCode completionHandler:nil];
+    if (!filePaths || filePaths.count == 0) {
+        return [super performDragOperation:sender];
+    }
 
-    return [super performDragOperation:sender];
+    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
+    NSString *jsCode = [NSString stringWithFormat:@"if (window.ui && typeof window.ui.handleDragDrop === 'function') { window.ui.handleDragDrop(%@) }", jsonString];
+    [self evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
+        if (error) {
+            NSLog(@"Drag drop error: %@", error);
+        }
+    }];
+
+    return YES;
 }
 
 - (void)keyDown:(NSEvent *)event {
