@@ -106,8 +106,8 @@
     }
     else if ([characters isEqualToString:@"x"] && (modifiers & NSEventModifierFlagCommand))
     {
-        // Handle copy action
-        [self copy:self];
+        // Handle cut action
+        [self cut:self];
         return YES;
     }
     else if ([characters isEqualToString:@"v"] && (modifiers & NSEventModifierFlagCommand))
