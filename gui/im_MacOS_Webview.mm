@@ -104,6 +104,12 @@
         [self copy:self];
         return YES;
     }
+    else if ([characters isEqualToString:@"x"] && (modifiers & NSEventModifierFlagCommand))
+    {
+        // Handle copy action
+        [self copy:self];
+        return YES;
+    }
     else if ([characters isEqualToString:@"v"] && (modifiers & NSEventModifierFlagCommand))
     {
         // Handle paste action
