@@ -428,7 +428,7 @@ struct InterleavedLayout
 //==============================================================================
 /** Handles layouts where each channel is packed into a separate block, and there is a master
     array of pointers to these channel blocks.
-    The layout classes are used in conjunction with the BufferView class.
+    The layout classes are used in conjunction with the BufferView class
 */
 template <typename SampleType>
 struct SeparateChannelLayout
