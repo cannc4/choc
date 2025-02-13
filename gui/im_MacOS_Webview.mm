@@ -173,6 +173,7 @@
     {
         // Handle select all action
         [self selectAll:self];
+        [self evaluateJavaScript:@"document.execCommand('selectAll')" completionHandler:nil];
         return YES;
     }
     else if ([characters isEqualToString:@"z"] && (modifiers & NSEventModifierFlagCommand))
