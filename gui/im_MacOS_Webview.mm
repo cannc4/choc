@@ -1,6 +1,7 @@
 #import "im_MacOS_Webview.h"
 #include "choc_WebView.h"
 #include "choc_MessageLoop.h"
+#include "../../../modules/DBG.h"
 
 @implementation imagiroWebView
 
@@ -32,40 +33,6 @@
     }
 
     return [[[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding] autorelease];
-}
-
-- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
-    NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragEnter(%@)", jsonString];
-    [self evaluateJavaScript:jsCode completionHandler:nil];
-
-    return [super draggingEntered:sender];
-}
-
-- (void)draggingExited:(id<NSDraggingInfo>)sender {
-    NSString *jsCode = @"window.ui.handleDragLeave()";
-    [self evaluateJavaScript:jsCode completionHandler:nil];
-
-    return [super draggingExited:sender];
-}
-
-- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
-    NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragOver(%@)", jsonString];
-    [self evaluateJavaScript:jsCode completionHandler:nil];
-
-    return [super draggingUpdated:sender];
-}
-
-- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
-    NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
-    NSString *jsonString = [self jsonStringForFilePaths:filePaths];
-    NSString *jsCode = [NSString stringWithFormat:@"window.ui.handleDragDrop(%@)", jsonString];
-    [self evaluateJavaScript:jsCode completionHandler:nil];
-
-    return [super performDragOperation:sender];
 }
 
 - (void)keyDown:(NSEvent *)event {
