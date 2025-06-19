@@ -268,6 +268,11 @@ struct DesktopWindow::Pimpl
 
         delegate = createDelegate();
         objc_setAssociatedObject (delegate, "choc_window", (CHOC_OBJC_CAST_BRIDGED id) this, OBJC_ASSOCIATION_ASSIGN);
+
+        intermediateView = objc::call<id> (objc::callClass<id> ("NSView", "alloc"), "init");
+        objc::call<void> (intermediateView, "setAutoresizingMask:", 18); // NSViewWidthSizable | NSViewHeightSizable
+        objc::call<void> (window, "setContentView:", intermediateView);
+
         call<void> (window, "setDelegate:", delegate);
         CHOC_AUTORELEASE_END
     }
@@ -278,6 +283,7 @@ struct DesktopWindow::Pimpl
         objc::call<void> (window, "setDelegate:", nullptr);
         objc::call<void> (window, "close");
         objc::call<void> (delegate, "release");
+        objc::call<void> (intermediateView, "release");
         CHOC_AUTORELEASE_END
     }
 
@@ -293,7 +299,17 @@ struct DesktopWindow::Pimpl
     void setContent (void* view)
     {
         CHOC_AUTORELEASE_BEGIN
-        objc::call<void> (window, "setContentView:", (CHOC_OBJC_CAST_BRIDGED id) view);
+
+        auto subviews = objc::call<id> (intermediateView, "subviews");
+        auto count = objc::call<int> (subviews, "count");
+
+        for (int i = 0; i < count; ++i)
+            objc::call<void> (objc::call<id> (subviews, "objectAtIndex:", 0), "removeFromSuperview");
+
+        auto newView = (CHOC_OBJC_CAST_BRIDGED id) view;
+        objc::call<void> (newView, "setAutoresizingMask:", 18); // NSViewWidthSizable | NSViewHeightSizable
+        objc::call<void> (newView, "setFrame:", objc::call<objc::CGRect> (intermediateView, "bounds"));
+        objc::call<void> (intermediateView, "addSubview:", newView);
         CHOC_AUTORELEASE_END
     }
 
@@ -359,7 +375,7 @@ struct DesktopWindow::Pimpl
     }
 
     DesktopWindow& owner;
-    id window = {}, delegate = {};
+    id window = {}, delegate = {}, intermediateView = {};
 
     struct DelegateClass
     {
@@ -712,15 +728,15 @@ private:
         HWND result = {};
 
         if (IsWindow (hwnd))
-        {
-            EnumChildWindows (hwnd, +[](HWND w, LPARAM context)
-            {
-                *reinterpret_cast<HWND*> (context) = w;
-                return FALSE;
-            }, (LPARAM) &result);
-        }
+            EnumChildWindows (hwnd, findFirstWindowCallback, (LPARAM) &result);
 
         return result;
+    }
+
+    static BOOL WINAPI findFirstWindowCallback (HWND w, LPARAM context)
+    {
+        *reinterpret_cast<HWND*> (context) = w;
+        return FALSE;
     }
 
     void resizeContentToFit()
