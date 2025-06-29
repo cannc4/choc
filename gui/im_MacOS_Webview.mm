@@ -21,6 +21,14 @@
     acceptKeyEvents = accept;
 }
 
+// Helper method to check if a key is a MIDI keyboard key that should pass through to JUCE
+- (BOOL)isMidiKeyboardKey:(NSString *)characters {
+    // MIDI keyboard keys based on JUCE MidiKeyboardComponent default mapping: "awsedftgyhujkolp;"
+    NSSet *midiKeys = [NSSet setWithObjects:@"a", @"w", @"s", @"e", @"d", @"f", @"t", @"g", @"y", @"h", @"u", @"j", @"k", @"o", @"l", @"p", @";", nil];
+    NSString *lowercaseKey = [characters lowercaseString];
+    return [midiKeys containsObject:lowercaseKey];
+}
+
 - (NSString *)jsonStringForFilePaths:(NSArray *)filePaths {
     NSError *error;
     NSData *jsonData = [NSJSONSerialization dataWithJSONObject:filePaths
@@ -122,19 +130,46 @@
 }
 
 - (void)keyDown:(NSEvent *)event {
+    NSString *characters = [event charactersIgnoringModifiers];
+
+    // If acceptKeyEvents is true, let the WebView handle ALL keys (including MIDI keys)
+    // This allows typing in text inputs, textareas, etc.
     if (acceptKeyEvents) {
         [super keyDown:event];
-    } else {
-        [[self nextResponder] keyDown:event];
+        return;
     }
+
+    // When acceptKeyEvents is false, pass MIDI keyboard keys through to JUCE
+    // but let WebView handle other keys that the app might need (like arrow keys, escape, etc.)
+    if ([self isMidiKeyboardKey:characters]) {
+        [[self nextResponder] keyDown:event];
+        return;
+    }
+
+    // For non-MIDI keys when acceptKeyEvents is false, let WebView handle them
+    // so the app can respond to navigation keys, etc.
+    [super keyDown:event];
 }
 
 - (void)keyUp:(NSEvent *)event {
+    NSString *characters = [event charactersIgnoringModifiers];
+
+    // If acceptKeyEvents is true, let the WebView handle ALL keys (including MIDI keys)
+    // This allows typing in text inputs, textareas, etc.
     if (acceptKeyEvents) {
         [super keyUp:event];
-    } else {
-        [[self nextResponder] keyUp:event];
+        return;
     }
+
+    // When acceptKeyEvents is false, pass MIDI keyboard keys through to JUCE
+    // but let WebView handle other keys that the app might need
+    if ([self isMidiKeyboardKey:characters]) {
+        [[self nextResponder] keyUp:event];
+        return;
+    }
+
+    // For non-MIDI keys when acceptKeyEvents is false, let WebView handle them
+    [super keyUp:event];
 }
 
 - (void)interpretKeyEvents:(NSArray<NSEvent*> *)events {
