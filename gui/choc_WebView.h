@@ -1391,8 +1391,11 @@ struct WebView::Pimpl
     void onJSKeyUp(const std::string& keyCode);
     void onJSKeyDown(const std::string& keyCode);
 
+    void setAcceptKeyEvents(bool accept) { acceptKeyEvents = accept; }
+
 private:
     std::unordered_set<KeyListener*> keyListeners;
+    bool acceptKeyEvents = false;
 
     WindowClass windowClass{L"CHOCWebView", (WNDPROC)wndProc};
     HWNDHolder hwnd;
@@ -1899,7 +1902,7 @@ inline WebView::WebView(const Options& options)
     bind("juce_enableKeyEvents",
          [&](const choc::value::ValueView& args) -> choc::value::Value
          {
-#if CHOC_APPLE
+#if CHOC_APPLE || CHOC_WINDOWS
              pimpl->setAcceptKeyEvents(args[0].getWithDefault(false));
 #endif
              return {};
