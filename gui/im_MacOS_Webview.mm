@@ -178,12 +178,24 @@
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
-
     NSString *characters = [[event charactersIgnoringModifiers] lowercaseString];
     NSEventModifierFlags modifiers = [event modifierFlags];
 
     if (!acceptKeyEvents) {
         return NO;
+    }
+
+    // Consume Enter/Return and Escape when we have keyboard focus
+    // This prevents these keys from propagating to the DAW (e.g., Logic's transport controls)
+    unsigned short keyCode = [event keyCode];
+    if (keyCode == 36 || keyCode == 76) {  // Return or numpad Enter
+        // Let the WebView handle it normally, but consume the event
+        [super keyDown:event];
+        return YES;
+    }
+    if (keyCode == 53) {  // Escape
+        [super keyDown:event];
+        return YES;
     }
 
     if ([characters isEqualToString:@"c"] && (modifiers & NSEventModifierFlagCommand))
