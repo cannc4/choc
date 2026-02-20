@@ -186,6 +186,9 @@ public:
     void addKeyListener(KeyListener* l);
     void removeKeyListener(KeyListener* l);
 
+    /// Returns the current acceptKeyEvents state (true when text input is focused)
+    bool getAcceptKeyEvents() const;
+
 private:
     //==============================================================================
     struct Pimpl;
@@ -1207,6 +1210,48 @@ extern "C"
         virtual HRESULT STDMETHODCALLTYPE put_DefaultBackgroundColor(COREWEBVIEW2_COLOR) = 0;
     };
 
+    //==============================================================================
+    // AcceleratorKeyPressed types — used to intercept browser accelerator keys (F5 etc.)
+
+    enum COREWEBVIEW2_KEY_EVENT_KIND
+    {
+        COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN = 0,
+        COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP = 1,
+        COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN = 2,
+        COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP = 3
+    };
+
+    struct COREWEBVIEW2_PHYSICAL_KEY_STATUS
+    {
+        UINT32 RepeatCount;
+        UINT32 ScanCode;
+        BOOL IsExtendedKey;
+        BOOL IsMenuKeyDown;
+        BOOL WasKeyDown;
+        BOOL IsKeyReleased;
+    };
+
+    typedef interface ICoreWebView2AcceleratorKeyPressedEventArgs ICoreWebView2AcceleratorKeyPressedEventArgs;
+
+    MIDL_INTERFACE("9f760f8a-fb79-42be-9990-7b56900fa9c7")
+    ICoreWebView2AcceleratorKeyPressedEventArgs : public IUnknown
+    {
+    public:
+        virtual HRESULT STDMETHODCALLTYPE get_KeyEventKind(COREWEBVIEW2_KEY_EVENT_KIND*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_VirtualKey(UINT*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_KeyEventLParam(INT*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_PhysicalKeyStatus(COREWEBVIEW2_PHYSICAL_KEY_STATUS*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_Handled(BOOL*) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_Handled(BOOL) = 0;
+    };
+
+    MIDL_INTERFACE("b29c7e28-fa79-41a8-8e44-65811c76dcb2")
+    ICoreWebView2AcceleratorKeyPressedEventHandler : public IUnknown
+    {
+    public:
+        virtual HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2Controller*, ICoreWebView2AcceleratorKeyPressedEventArgs*) = 0;
+    };
+
     STDAPI CreateCoreWebView2EnvironmentWithOptions(PCWSTR, PCWSTR, void*, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*);
 
     MIDL_INTERFACE("0702fc30-f43b-47bb-ab52-a42cb552ad9f")
@@ -1392,6 +1437,7 @@ struct WebView::Pimpl
     void onJSKeyDown(const std::string& keyCode);
 
     void setAcceptKeyEvents(bool accept) { acceptKeyEvents = accept; }
+    bool getAcceptKeyEvents() const { return acceptKeyEvents; }
 
 private:
     std::unordered_set<KeyListener*> keyListeners;
@@ -1568,6 +1614,14 @@ private:
                     controller2->put_DefaultBackgroundColor({0, 0, 0, 0});
                     controller2->Release();
                 }
+            }
+
+            // Block browser accelerator keys (F5 refresh, F7 caret browsing) while
+            // allowing all other keys through to JavaScript
+            {
+                COMPtr<AcceleratorKeyHandler> akHandler(new AcceleratorKeyHandler());
+                EventRegistrationToken token;
+                controller->add_AcceleratorKeyPressed(akHandler, std::addressof(token));
             }
         }
 
@@ -1785,6 +1839,43 @@ private:
     };
 
     //==============================================================================
+    // Blocks browser accelerator keys (F5 refresh, F7 caret browsing) while allowing
+    // all other keys (Alt+, Ctrl+, arrows, Escape, etc.) through to JavaScript.
+    struct AcceleratorKeyHandler : public ICoreWebView2AcceleratorKeyPressedEventHandler
+    {
+        virtual ~AcceleratorKeyHandler() {}
+
+        HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, LPVOID*) override { return E_NOINTERFACE; }
+        ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount; }
+        ULONG STDMETHODCALLTYPE Release() override
+        {
+            auto newCount = --refCount;
+            if (newCount == 0)
+                delete this;
+            return newCount;
+        }
+
+        HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2Controller*, ICoreWebView2AcceleratorKeyPressedEventArgs* args) override
+        {
+            UINT vk = 0;
+            args->get_VirtualKey(&vk);
+
+            // Block F5 (refresh) and F7 (caret browsing) — no useful purpose in a plugin
+            if (vk == VK_F5 || vk == VK_F7)
+            {
+                args->put_Handled(TRUE);
+                return S_OK;
+            }
+
+            // Allow everything else through to JavaScript (Alt+keys, arrows, Escape, etc.)
+            args->put_Handled(FALSE);
+            return S_OK;
+        }
+
+        std::atomic<ULONG> refCount{0};
+    };
+
+    //==============================================================================
     struct ExecuteScriptCompletedCallback : public ICoreWebView2ExecuteScriptCompletedHandler
     {
         ExecuteScriptCompletedCallback(CompletionHandler&& cb)
@@ -1954,6 +2045,15 @@ inline void WebView::removeKeyListener(choc::ui::WebView::KeyListener* l)
 #if CHOC_WINDOWS
     if (pimpl != nullptr)
         pimpl->removeKeyListener(l);
+#endif
+}
+
+inline bool WebView::getAcceptKeyEvents() const
+{
+#if CHOC_WINDOWS
+    return pimpl != nullptr && pimpl->getAcceptKeyEvents();
+#else
+    return false;
 #endif
 }
 
