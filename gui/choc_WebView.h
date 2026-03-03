@@ -126,12 +126,6 @@ public:
         /// content.
         bool transparentBackground = false;
 
-        /// On Windows, specifies a custom user data folder path for WebView2.
-        /// Using a fixed path allows WebView2 cache to be shared across host
-        /// applications, improving startup time. When empty, defaults to
-        /// %APPDATA%/<exe_name>.
-        std::string userDataFolder;
-
         /// On OSX there's some custom code to intercept copy/paste keys, which
         /// otherwise wouldn't work by default. This lets you turn that off if you
         /// need to.
@@ -182,10 +176,6 @@ public:
 
     /// Returns a platform-specific handle for this view
     void* getViewHandle() const;
-
-    /// Controls visibility of the WebView2 content (Windows only).
-    /// Use this to defer showing until content is ready, preventing flash.
-    void setVisible(bool visible);
 
     struct KeyListener
     {
@@ -1449,12 +1439,6 @@ struct WebView::Pimpl
     void setAcceptKeyEvents(bool accept) { acceptKeyEvents = accept; }
     bool getAcceptKeyEvents() const { return acceptKeyEvents; }
 
-    void setVisible(bool v)
-    {
-        if (coreWebViewController != nullptr)
-            coreWebViewController->put_IsVisible(v ? TRUE : FALSE);
-    }
-
 private:
     std::unordered_set<KeyListener*> keyListeners;
     bool acceptKeyEvents = false;
@@ -1535,11 +1519,7 @@ private:
 
     bool createEmbeddedWebView()
     {
-        auto udf = options.userDataFolder.empty()
-                 ? getUserDataFolder()
-                 : createUTF16StringFromUTF8(options.userDataFolder);
-
-        if (!udf.empty())
+        if (auto userDataFolder = getUserDataFolder(); !userDataFolder.empty())
         {
             COMPtr<EventHandler> handler(new EventHandler(*this));
             webviewInitialising.test_and_set();
@@ -1548,7 +1528,7 @@ private:
                     (decltype(&CreateCoreWebView2EnvironmentWithOptions))webviewDLL.findFunction(
                         "CreateCoreWebView2EnvironmentWithOptions"))
             {
-                if (createCoreWebView2EnvironmentWithOptions(nullptr, udf.c_str(), nullptr, handler) == S_OK)
+                if (createCoreWebView2EnvironmentWithOptions(nullptr, userDataFolder.c_str(), nullptr, handler) == S_OK)
                 {
                     MSG msg;
                     auto timeoutTimer = SetTimer({}, {}, 6000, {});
@@ -1643,10 +1623,6 @@ private:
                 EventRegistrationToken token;
                 controller->add_AcceleratorKeyPressed(akHandler, std::addressof(token));
             }
-
-            // Start with controller hidden to prevent rendering artifacts during load.
-            // The host should call setVisible(true) when content is ready.
-            coreWebViewController->put_IsVisible(FALSE);
         }
 
         webviewInitialising.clear();
@@ -2078,16 +2054,6 @@ inline bool WebView::getAcceptKeyEvents() const
     return pimpl != nullptr && pimpl->getAcceptKeyEvents();
 #else
     return false;
-#endif
-}
-
-inline void WebView::setVisible(bool visible)
-{
-#if CHOC_WINDOWS
-    if (pimpl != nullptr)
-        pimpl->setVisible(visible);
-#else
-    (void) visible;
 #endif
 }
 
