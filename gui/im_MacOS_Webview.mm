@@ -9,6 +9,7 @@
     if (self) {
         [self registerForDraggedTypes:@[(id)kUTTypeFileURL, NSPasteboardTypeFileURL, NSFilenamesPboardType]];
         acceptKeyEvents = NO;
+        debugMode = NO;
     }
     return self;
 }
@@ -17,8 +18,19 @@
     return YES;
 }
 
+- (void)setDebugMode:(BOOL)enabled {
+    debugMode = enabled;
+}
+
 - (void)setAcceptKeyEvents:(BOOL)accept {
     acceptKeyEvents = accept;
+}
+
+- (void)willOpenMenu:(NSMenu *)menu withEvent:(NSEvent *)event {
+    if (!debugMode)
+        [menu removeAllItems];
+    else
+        [super willOpenMenu:menu withEvent:event];
 }
 
 // Helper method to check if a key is a MIDI keyboard key that should pass through to JUCE

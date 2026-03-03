@@ -518,6 +518,8 @@ struct choc::ui::WebView::Pimpl
         webview = call<id>(allocateWebview(), "initWithFrame:configuration:", objc::CGRect(), config);
         objc_setAssociatedObject(webview, "choc_webview", (CHOC_OBJC_CAST_BRIDGED id)this, OBJC_ASSOCIATION_ASSIGN);
 
+        call<void>(webview, "setDebugMode:", (BOOL)options->enableDebugMode);
+
         if (!options->customUserAgent.empty())
             call<void>(webview, "setValue:forKey:", getNSString(options->customUserAgent), getNSString("customUserAgent"));
 
@@ -1561,6 +1563,7 @@ private:
                     if (coreWebView->get_Settings(std::addressof(settings)) == S_OK && settings != nullptr)
                     {
                         settings->put_AreDevToolsEnabled(options.enableDebugMode);
+                        settings->put_AreDefaultContextMenusEnabled(options.enableDebugMode);
 
                         if (!options.customUserAgent.empty())
                         {

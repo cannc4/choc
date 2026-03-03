@@ -5,6 +5,7 @@
 
 @interface imagiroWebView : WKWebView <WKNavigationDelegate, WKUIDelegate, NSDraggingDestination> {
     BOOL acceptKeyEvents;
+    BOOL debugMode;
 }
 
 - (void)setAcceptKeyEvents:(BOOL)accept;
