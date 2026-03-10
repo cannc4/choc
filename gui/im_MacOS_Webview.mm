@@ -10,6 +10,7 @@
         [self registerForDraggedTypes:@[(id)kUTTypeFileURL, NSPasteboardTypeFileURL, NSFilenamesPboardType]];
         acceptKeyEvents = NO;
         debugMode = NO;
+        isHandlingKeyEquivalent = NO;
     }
     return self;
 }
@@ -190,6 +191,12 @@
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
+    // Reentrancy guard: WKWebView's doneWithKeyEvent re-dispatches unhandled keys
+    // back through the responder chain, which calls performKeyEquivalent again → stack overflow
+    if (isHandlingKeyEquivalent) {
+        return NO;
+    }
+
     NSString *characters = [[event charactersIgnoringModifiers] lowercaseString];
     NSEventModifierFlags modifiers = [event modifierFlags];
 
@@ -252,7 +259,10 @@
         return YES;
     }
 
-    return [super performKeyEquivalent:event];
+    isHandlingKeyEquivalent = YES;
+    BOOL result = [super performKeyEquivalent:event];
+    isHandlingKeyEquivalent = NO;
+    return result;
 }
 
 @end
