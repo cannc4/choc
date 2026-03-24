@@ -146,7 +146,7 @@
     // Reentrancy guard: WKWebView's doneWithKeyEvent re-dispatches unhandled keys
     // back through the responder chain, which can call keyDown: again → stack overflow.
     // This happens with MIDI controllers that also send HID keyboard events (e.g. Akai APCKey25).
-    if (isHandlingKeyDown) {
+    if (isHandlingKeyEvent) {
         return;
     }
 
@@ -155,9 +155,9 @@
     // If acceptKeyEvents is true, let the WebView handle ALL keys (including MIDI keys)
     // This allows typing in text inputs, textareas, etc.
     if (acceptKeyEvents) {
-        isHandlingKeyDown = YES;
-        [super keyDown:event];
-        isHandlingKeyDown = NO;
+        isHandlingKeyEvent = YES;
+        @try { [super keyDown:event]; }
+        @finally { isHandlingKeyEvent = NO; }
         return;
     }
 
@@ -170,14 +170,14 @@
 
     // For non-MIDI keys when acceptKeyEvents is false, let WebView handle them
     // so the app can respond to navigation keys, etc.
-    isHandlingKeyDown = YES;
-    [super keyDown:event];
-    isHandlingKeyDown = NO;
+    isHandlingKeyEvent = YES;
+    @try { [super keyDown:event]; }
+    @finally { isHandlingKeyEvent = NO; }
 }
 
 - (void)keyUp:(NSEvent *)event {
     // Reentrancy guard (matches keyDown:)
-    if (isHandlingKeyDown) {
+    if (isHandlingKeyEvent) {
         return;
     }
 
@@ -186,9 +186,9 @@
     // If acceptKeyEvents is true, let the WebView handle ALL keys (including MIDI keys)
     // This allows typing in text inputs, textareas, etc.
     if (acceptKeyEvents) {
-        isHandlingKeyDown = YES;
-        [super keyUp:event];
-        isHandlingKeyDown = NO;
+        isHandlingKeyEvent = YES;
+        @try { [super keyUp:event]; }
+        @finally { isHandlingKeyEvent = NO; }
         return;
     }
 
@@ -200,9 +200,9 @@
     }
 
     // For non-MIDI keys when acceptKeyEvents is false, let WebView handle them
-    isHandlingKeyDown = YES;
-    [super keyUp:event];
-    isHandlingKeyDown = NO;
+    isHandlingKeyEvent = YES;
+    @try { [super keyUp:event]; }
+    @finally { isHandlingKeyEvent = NO; }
 }
 
 - (void)interpretKeyEvents:(NSArray<NSEvent*> *)events {
@@ -229,11 +229,15 @@
     unsigned short keyCode = [event keyCode];
     if (keyCode == 36 || keyCode == 76) {  // Return or numpad Enter
         // Let the WebView handle it normally, but consume the event
-        [super keyDown:event];
+        isHandlingKeyEvent = YES;
+        @try { [super keyDown:event]; }
+        @finally { isHandlingKeyEvent = NO; }
         return YES;
     }
     if (keyCode == 53) {  // Escape
-        [super keyDown:event];
+        isHandlingKeyEvent = YES;
+        @try { [super keyDown:event]; }
+        @finally { isHandlingKeyEvent = NO; }
         return YES;
     }
 
@@ -280,8 +284,9 @@
     }
 
     isHandlingKeyEquivalent = YES;
-    BOOL result = [super performKeyEquivalent:event];
-    isHandlingKeyEquivalent = NO;
+    BOOL result;
+    @try { result = [super performKeyEquivalent:event]; }
+    @finally { isHandlingKeyEquivalent = NO; }
     return result;
 }
 
