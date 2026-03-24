@@ -7,6 +7,7 @@
     BOOL acceptKeyEvents;
     BOOL debugMode;
     BOOL isHandlingKeyEquivalent;
+    BOOL isHandlingKeyDown;
 }
 
 - (void)setAcceptKeyEvents:(BOOL)accept;

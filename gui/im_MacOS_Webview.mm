@@ -143,12 +143,21 @@
 }
 
 - (void)keyDown:(NSEvent *)event {
+    // Reentrancy guard: WKWebView's doneWithKeyEvent re-dispatches unhandled keys
+    // back through the responder chain, which can call keyDown: again → stack overflow.
+    // This happens with MIDI controllers that also send HID keyboard events (e.g. Akai APCKey25).
+    if (isHandlingKeyDown) {
+        return;
+    }
+
     NSString *characters = [event charactersIgnoringModifiers];
 
     // If acceptKeyEvents is true, let the WebView handle ALL keys (including MIDI keys)
     // This allows typing in text inputs, textareas, etc.
     if (acceptKeyEvents) {
+        isHandlingKeyDown = YES;
         [super keyDown:event];
+        isHandlingKeyDown = NO;
         return;
     }
 
@@ -161,16 +170,25 @@
 
     // For non-MIDI keys when acceptKeyEvents is false, let WebView handle them
     // so the app can respond to navigation keys, etc.
+    isHandlingKeyDown = YES;
     [super keyDown:event];
+    isHandlingKeyDown = NO;
 }
 
 - (void)keyUp:(NSEvent *)event {
+    // Reentrancy guard (matches keyDown:)
+    if (isHandlingKeyDown) {
+        return;
+    }
+
     NSString *characters = [event charactersIgnoringModifiers];
 
     // If acceptKeyEvents is true, let the WebView handle ALL keys (including MIDI keys)
     // This allows typing in text inputs, textareas, etc.
     if (acceptKeyEvents) {
+        isHandlingKeyDown = YES;
         [super keyUp:event];
+        isHandlingKeyDown = NO;
         return;
     }
 
@@ -182,7 +200,9 @@
     }
 
     // For non-MIDI keys when acceptKeyEvents is false, let WebView handle them
+    isHandlingKeyDown = YES;
     [super keyUp:event];
+    isHandlingKeyDown = NO;
 }
 
 - (void)interpretKeyEvents:(NSArray<NSEvent*> *)events {
