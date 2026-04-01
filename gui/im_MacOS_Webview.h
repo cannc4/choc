@@ -8,6 +8,7 @@
     BOOL debugMode;
     BOOL isHandlingKeyEquivalent;
     BOOL isHandlingKeyEvent;
+    BOOL isHandlingKeyboardDispatch;
 }
 
 - (void)setAcceptKeyEvents:(BOOL)accept;
