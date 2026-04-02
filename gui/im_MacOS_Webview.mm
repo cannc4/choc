@@ -229,7 +229,7 @@
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
     if (isHandlingKeyEquivalent || isHandlingKeyboardDispatch) {
-        return NO;
+        return YES; // Consume the event to break WebKit ↔ AppKit key event recursion cycle
     }
 
     NSString *characters = [[event charactersIgnoringModifiers] lowercaseString];
