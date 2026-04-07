@@ -285,6 +285,24 @@
         [self paste:self];
         return YES;
     }
+    else if ([characters isEqualToString:@"a"] && (modifiers & NSEventModifierFlagCommand))
+    {
+        // Dispatch a JS keydown so app-level handlers (piano roll select-all) can
+        // intercept Cmd+A.  If JS calls preventDefault() we skip the native selectAll;
+        // otherwise we perform it so text-input selection keeps working.
+        NSString *js = @"(function(){"
+            "var e=new KeyboardEvent('keydown',{key:'a',code:'KeyA',metaKey:true,bubbles:true,cancelable:true});"
+            "return window.dispatchEvent(e)"  // false when preventDefault() was called
+            "})()";
+        [self evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+            if (!error && [result boolValue]) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self selectAll:self];
+                });
+            }
+        }];
+        return YES;
+    }
     else if ([characters isEqualToString:@"z"] && (modifiers & NSEventModifierFlagCommand))
     {
         if (modifiers & NSEventModifierFlagShift)
