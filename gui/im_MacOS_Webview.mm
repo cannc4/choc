@@ -285,13 +285,6 @@
         [self paste:self];
         return YES;
     }
-    else if ([characters isEqualToString:@"a"] && (modifiers & NSEventModifierFlagCommand))
-    {
-        // Handle select all action
-        [self selectAll:self];
-        [self evaluateJavaScript:@"document.execCommand('selectAll')" completionHandler:nil];
-        return YES;
-    }
     else if ([characters isEqualToString:@"z"] && (modifiers & NSEventModifierFlagCommand))
     {
         if (modifiers & NSEventModifierFlagShift)
