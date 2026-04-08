@@ -226,6 +226,23 @@
     [super interpretKeyEvents:events];
 }
 
+// Dispatch a synthetic JS KeyboardEvent. If JS does NOT call preventDefault(),
+// run the native fallback on the main queue.
+- (void)dispatchJSKeyEvent:(NSString *)key code:(NSString *)code shiftKey:(BOOL)shift fallback:(dispatch_block_t)fallback
+{
+    NSString *js = [NSString stringWithFormat:
+        @"(function(){"
+         "var e=new KeyboardEvent('keydown',{key:'%@',code:'%@',metaKey:true,shiftKey:%@,bubbles:true,cancelable:true});"
+         "return window.dispatchEvent(e)"
+         "})();",
+        key, code, shift ? @"true" : @"false"];
+    [self evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+        if (!error && [result boolValue] && fallback) {
+            dispatch_async(dispatch_get_main_queue(), fallback);
+        }
+    }];
+}
+
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
     if (isHandlingKeyEquivalent || isHandlingKeyboardDispatch) {
@@ -267,57 +284,48 @@
         return YES;
     }
 
+    // For modifier-key combos, dispatch a synthetic JS KeyboardEvent first so PAM's
+    // JS handlers (undo/redo, sequence copy/paste, select-all) can intercept them.
+    // dispatchEvent() returns true if NO handler called preventDefault() (= JS didn't handle it),
+    // and false if a handler DID call preventDefault() (= JS handled it).
+    // So: native fallback fires only when dispatchEvent returns true (JS passed).
+
     if ([characters isEqualToString:@"c"] && (modifiers & NSEventModifierFlagCommand))
     {
-        // Handle copy action
-        [self copy:self];
+        [self dispatchJSKeyEvent:@"c" code:@"KeyC" shiftKey:NO fallback:^{ [self copy:self]; }];
         return YES;
     }
     else if ([characters isEqualToString:@"x"] && (modifiers & NSEventModifierFlagCommand))
     {
-        // Handle cut action
-        [self cut:self];
+        [self dispatchJSKeyEvent:@"x" code:@"KeyX" shiftKey:NO fallback:^{ [self cut:self]; }];
         return YES;
     }
     else if ([characters isEqualToString:@"v"] && (modifiers & NSEventModifierFlagCommand))
     {
-        // Handle paste action
-        [self paste:self];
+        [self dispatchJSKeyEvent:@"v" code:@"KeyV" shiftKey:NO fallback:^{ [self paste:self]; }];
         return YES;
     }
     else if ([characters isEqualToString:@"a"] && (modifiers & NSEventModifierFlagCommand))
     {
-        // Dispatch a JS keydown so app-level handlers (piano roll select-all) can
-        // intercept Cmd+A.  If JS calls preventDefault() we skip the native selectAll;
-        // otherwise we perform it so text-input selection keeps working.
-        NSString *js = @"(function(){"
-            "var e=new KeyboardEvent('keydown',{key:'a',code:'KeyA',metaKey:true,bubbles:true,cancelable:true});"
-            "return window.dispatchEvent(e)"  // false when preventDefault() was called
-            "})()";
-        [self evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
-            if (!error && [result boolValue]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self selectAll:self];
-                });
-            }
-        }];
+        [self dispatchJSKeyEvent:@"a" code:@"KeyA" shiftKey:NO fallback:^{ [self selectAll:self]; }];
         return YES;
     }
     else if ([characters isEqualToString:@"z"] && (modifiers & NSEventModifierFlagCommand))
     {
         if (modifiers & NSEventModifierFlagShift)
         {
-            // Handle redo action
-            [self evaluateJavaScript:@"document.execCommand('redo')" completionHandler:nil];
+            [self dispatchJSKeyEvent:@"z" code:@"KeyZ" shiftKey:YES fallback:^{
+                [self evaluateJavaScript:@"document.execCommand('redo')" completionHandler:nil];
+            }];
             return YES;
         }
         else
         {
-            // Handle undo action
-            [self evaluateJavaScript:@"document.execCommand('undo')" completionHandler:nil];
+            [self dispatchJSKeyEvent:@"z" code:@"KeyZ" shiftKey:NO fallback:^{
+                [self evaluateJavaScript:@"document.execCommand('undo')" completionHandler:nil];
+            }];
             return YES;
         }
-        return YES;
     }
 
     isHandlingKeyboardDispatch = YES;
