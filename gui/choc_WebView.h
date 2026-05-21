@@ -1826,7 +1826,8 @@ private:
             COREWEBVIEW2_PERMISSION_KIND permissionKind;
             args->get_PermissionKind(std::addressof(permissionKind));
 
-            if (permissionKind == COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ)
+            if (permissionKind == COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ
+                || permissionKind == COREWEBVIEW2_PERMISSION_KIND_CAMERA)
                 args->put_State(COREWEBVIEW2_PERMISSION_STATE_ALLOW);
 
             return S_OK;

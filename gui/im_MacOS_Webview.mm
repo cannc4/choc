@@ -339,6 +339,19 @@
     return result;
 }
 
+// WKUIDelegate — grant getUserMedia inside the plugin WebView. The OS TCC layer
+// still gates this: the host process's NSCameraUsageDescription drives the
+// system prompt, and if the user denies there, getUserMedia rejects with
+// NotAllowedError regardless of what we return here. We grant unconditionally
+// because only the plugin's own origin can reach this code path.
+- (void)webView:(WKWebView *)webView
+        requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin
+        initiatedByFrame:(WKFrameInfo *)frame
+        type:(WKMediaCaptureType)type
+        decisionHandler:(void (^)(WKPermissionDecision))decisionHandler API_AVAILABLE(macos(12.0), ios(15.0)) {
+    decisionHandler(WKPermissionDecisionGrant);
+}
+
 @end
 
 namespace choc::ui {
