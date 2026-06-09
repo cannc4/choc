@@ -854,6 +854,19 @@ private:
 
             class_addMethod(delegateClass, sel_registerName("webView:stopURLSchemeTask:"), (IMP)(+[](id, SEL, id, id) {}), "v@:@@");
 
+            // getUserMedia (camera/mic) permission. WebKit queries this on the
+            // WKUIDelegate — i.e. THIS class — not on the WKWebView, so it must be
+            // registered here. Granting lets the plugin's own origin use the camera;
+            // the OS TCC layer still gates the device via the host process's
+            // NSCameraUsageDescription (macOS 12+ / iOS 15+).
+            class_addMethod(delegateClass,
+                            sel_registerName("webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:"),
+                            (IMP)(+[](id, SEL, id /*webView*/, id /*origin*/, id /*frame*/, long /*type*/, void (^decisionHandler)(long))
+                                  {
+                                      decisionHandler(1); // WKPermissionDecisionGrant
+                                  }),
+                            "v@:@@@q@?");
+
             class_addMethod(delegateClass, sel_registerName("webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:"),
                             (IMP)(+[](id, SEL, id wkwebview, id params, id /*frame*/, void (^completionHandler)(id))
                                   {

@@ -339,18 +339,11 @@
     return result;
 }
 
-// WKUIDelegate — grant getUserMedia inside the plugin WebView. The OS TCC layer
-// still gates this: the host process's NSCameraUsageDescription drives the
-// system prompt, and if the user denies there, getUserMedia rejects with
-// NotAllowedError regardless of what we return here. We grant unconditionally
-// because only the plugin's own origin can reach this code path.
-- (void)webView:(WKWebView *)webView
-        requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin
-        initiatedByFrame:(WKFrameInfo *)frame
-        type:(WKMediaCaptureType)type
-        decisionHandler:(void (^)(WKPermissionDecision))decisionHandler API_AVAILABLE(macos(12.0), ios(15.0)) {
-    decisionHandler(WKPermissionDecisionGrant);
-}
+// NOTE: getUserMedia permission (WKUIDelegate requestMediaCapturePermissionForOrigin)
+// is granted on choc's CHOCWebViewDelegate_ (choc_WebView.h DelegateClass) — the
+// object actually assigned as the WKWebView's UIDelegate via setUIDelegate:. A copy
+// here on the WKWebView subclass would be dead code: imagiroWebView is never set as
+// its own UIDelegate, so WebKit never queries it.
 
 @end
 
