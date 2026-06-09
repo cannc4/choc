@@ -339,11 +339,9 @@
     return result;
 }
 
-// NOTE: getUserMedia permission (WKUIDelegate requestMediaCapturePermissionForOrigin)
-// is granted on choc's CHOCWebViewDelegate_ (choc_WebView.h DelegateClass) — the
-// object actually assigned as the WKWebView's UIDelegate via setUIDelegate:. A copy
-// here on the WKWebView subclass would be dead code: imagiroWebView is never set as
-// its own UIDelegate, so WebKit never queries it.
+// getUserMedia permission is granted on choc's CHOCWebViewDelegate_ (choc_WebView.h),
+// the object actually assigned as the WKWebView's UIDelegate. A copy here would be
+// dead code — imagiroWebView is never its own UIDelegate.
 
 @end
 
