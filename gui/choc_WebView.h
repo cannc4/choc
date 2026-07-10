@@ -114,6 +114,30 @@ public:
         /// with the requested path as their argument.
         FetchResource fetchResource;
 
+        /// Optional HTTP Range support for fetchResource-served content (media streaming).
+        /// When a request carries a Range header and this callback is set, it is invoked
+        /// instead of fetchResource. start/end mirror the single-range header forms:
+        /// {A,B} = bytes A..B inclusive, {A,nullopt} = open-ended from A (the callback may
+        /// return a shorter window — media loaders re-request the remainder), and
+        /// {nullopt,N} = suffix (the last N bytes). Return the slice actually served plus
+        /// the resource's total size; `start` must be the first byte of `data`. Returning
+        /// a RangeResource with empty data but a non-zero totalSize produces a
+        /// 416 (Range Not Satisfiable) response; returning nullopt falls back to a full
+        /// fetchResource response. When this callback is set, full-body responses
+        /// advertise "Accept-Ranges: bytes" so browser media loaders use ranges.
+        struct RangeResource
+        {
+            std::vector<uint8_t> data;
+            std::string mimeType;
+            uint64_t start = 0;
+            uint64_t totalSize = 0;
+        };
+
+        using FetchResourceRange = std::function<std::optional<RangeResource>(const std::string& path,
+                                                                              std::optional<uint64_t> start,
+                                                                              std::optional<uint64_t> end)>;
+        FetchResourceRange fetchResourceRange;
+
         /// If fetchResource is being used to serve custom data, you can choose to
         /// override the default URI scheme by providing a home URI here, e.g. if
         /// you wanted a scheme called `foo:`, you might set this to `foo://myname.com`
@@ -210,6 +234,66 @@ private:
 // headers before this file).
 inline std::unique_ptr<juce::Component> createJUCEWebViewHolder(choc::ui::WebView&);
 #endif
+
+namespace detail
+{
+    /// Parses a single-range HTTP Range header value ("bytes=A-B", "bytes=A-", "bytes=-N")
+    /// into the start/end forms Options::fetchResourceRange expects. Multi-range requests
+    /// and malformed values return false. Shared by the platform resource handlers.
+    inline bool parseByteRangeHeader (const std::string& value,
+                                      std::optional<uint64_t>& start,
+                                      std::optional<uint64_t>& end)
+    {
+        start.reset();
+        end.reset();
+
+        if (value.rfind ("bytes=", 0) != 0)
+            return false;
+
+        std::string spec;
+        for (const char c : value.substr (6))
+            if (c != ' ' && c != '\t')
+                spec += c;
+
+        if (spec.empty() || spec.find (',') != std::string::npos)
+            return false;
+
+        const auto dash = spec.find ('-');
+
+        if (dash == std::string::npos)
+            return false;
+
+        auto parseNumber = [] (const std::string& s, std::optional<uint64_t>& out) -> bool
+        {
+            if (s.empty())
+                return true;   // the absent side of an open-ended/suffix range
+
+            uint64_t v = 0;
+
+            for (const char c : s)
+            {
+                if (c < '0' || c > '9')
+                    return false;
+
+                if (v > (UINT64_MAX - static_cast<uint64_t> (c - '0')) / 10u)
+                    return false;
+
+                v = v * 10u + static_cast<uint64_t> (c - '0');
+            }
+
+            out = v;
+            return true;
+        };
+
+        if (! parseNumber (spec.substr (0, dash), start))
+            return false;
+
+        if (! parseNumber (spec.substr (dash + 1), end))
+            return false;
+
+        return start.has_value() || end.has_value();
+    }
+}
 
 }  // namespace choc::ui
 
@@ -693,14 +777,68 @@ private:
 
             auto path = objc::getString(call<id>(requestUrl, "path"));
 
+            // HTTP Range support (media streaming): a Range header + a fetchResourceRange
+            // callback answers 206 Partial Content with whatever slice the callback returns
+            // (possibly shorter than requested — media loaders re-request the remainder).
+            // An empty slice with a known total answers 416. Parse/callback failures fall
+            // through to the full-body path below.
+            if (options->fetchResourceRange)
+            {
+                id request = call<id>(task, "request");
+                id rangeValue = call<id>(request, "valueForHTTPHeaderField:", getNSString("Range"));
+                const auto rangeHeader = rangeValue ? objc::getString(rangeValue) : std::string();
+                std::optional<uint64_t> rangeStart, rangeEnd;
+
+                if (!rangeHeader.empty() && detail::parseByteRangeHeader(rangeHeader, rangeStart, rangeEnd))
+                {
+                    if (auto ranged = options->fetchResourceRange(path, rangeStart, rangeEnd))
+                    {
+                        if (ranged->data.empty())
+                        {
+                            id headerKeys[] = {getNSString("Content-Range")};
+                            id headerObjects[] = {getNSString("bytes */" + std::to_string(ranged->totalSize))};
+                            id headerFields = callClass<id>("NSDictionary", "dictionaryWithObjects:forKeys:count:",
+                                                            headerObjects, headerKeys, sizeof(headerObjects) / sizeof(id));
+                            call<void>(task, "didReceiveResponse:", makeResponse(416, headerFields));
+                            call<void>(task, "didFinish");
+                            return;
+                        }
+
+                        const auto firstByte = ranged->start;
+                        const auto lastByte = firstByte + ranged->data.size() - 1;
+                        const auto contentRange = "bytes " + std::to_string(firstByte) + "-" + std::to_string(lastByte)
+                                                + "/" + std::to_string(ranged->totalSize);
+
+                        id headerKeys[] = {getNSString("Content-Length"), getNSString("Content-Type"),
+                                           getNSString("Content-Range"), getNSString("Accept-Ranges"),
+                                           getNSString("Cache-Control"), getNSString("Access-Control-Allow-Origin")};
+                        id headerObjects[] = {getNSString(std::to_string(ranged->data.size())), getNSString(ranged->mimeType),
+                                              getNSString(contentRange), getNSString("bytes"),
+                                              getNSString("no-store"), getNSString("*")};
+                        id headerFields = callClass<id>("NSDictionary", "dictionaryWithObjects:forKeys:count:",
+                                                        headerObjects, headerKeys, sizeof(headerObjects) / sizeof(id));
+
+                        call<void>(task, "didReceiveResponse:", makeResponse(206, headerFields));
+                        id data = callClass<id>("NSData", "dataWithBytes:length:", ranged->data.data(), ranged->data.size());
+                        call<void>(task, "didReceiveData:", data);
+                        call<void>(task, "didFinish");
+                        return;
+                    }
+                }
+            }
+
             if (auto resource = options->fetchResource(path))
             {
                 const auto& [bytes, mimeType] = *resource;
 
                 auto contentLength = std::to_string(bytes.size());
+                // When ranges are supported, advertise them on full-body responses so the
+                // browser's media loader switches to bounded range requests.
+                const auto acceptRanges = options->fetchResourceRange ? "bytes" : "none";
                 id headerKeys[] = {getNSString("Content-Length"), getNSString("Content-Type"), getNSString("Cache-Control"),
-                                   getNSString("Access-Control-Allow-Origin")};
-                id headerObjects[] = {getNSString(contentLength), getNSString(mimeType), getNSString("no-store"), getNSString("*")};
+                                   getNSString("Access-Control-Allow-Origin"), getNSString("Accept-Ranges")};
+                id headerObjects[] = {getNSString(contentLength), getNSString(mimeType), getNSString("no-store"), getNSString("*"),
+                                      getNSString(acceptRanges)};
 
                 id headerFields = callClass<id>("NSDictionary", "dictionaryWithObjects:forKeys:count:", headerObjects, headerKeys,
                                                 sizeof(headerObjects) / sizeof(id));
@@ -1714,16 +1852,79 @@ private:
             ICoreWebView2WebResourceResponse* response = {};
             ScopedExit cleanupResponse(makeCleanupIUnknown(response));
 
-            if (const auto resource = fetchResourceOrPageHTML(createUTF8FromUTF16(uri)))
+            const auto makeMemoryStream = [](const auto* data, auto length) -> IStream*
             {
-                const auto makeMemoryStream = [](const auto* data, auto length) -> IStream*
-                {
-                    choc::file::DynamicLibrary lib("shlwapi.dll");
-                    using SHCreateMemStreamFn = IStream*(__stdcall*)(const BYTE*, UINT);
-                    auto fn = reinterpret_cast<SHCreateMemStreamFn>(lib.findFunction("SHCreateMemStream"));
-                    return fn ? fn(data, length) : nullptr;
-                };
+                choc::file::DynamicLibrary lib("shlwapi.dll");
+                using SHCreateMemStreamFn = IStream*(__stdcall*)(const BYTE*, UINT);
+                auto fn = reinterpret_cast<SHCreateMemStreamFn>(lib.findFunction("SHCreateMemStream"));
+                return fn ? fn(data, length) : nullptr;
+            };
 
+            const auto uriUtf8 = createUTF8FromUTF16(uri);
+
+            // HTTP Range support (media streaming) — the WebView2 twin of the macOS handler:
+            // a Range header + fetchResourceRange answers 206 with the returned slice (or 416
+            // for an unsatisfiable range); anything else falls through to the full-body path.
+            if (options.fetchResourceRange && uriUtf8 != setHTMLURI)
+            {
+                ICoreWebView2HttpRequestHeaders* requestHeaders = {};
+                ScopedExit cleanupRequestHeaders(makeCleanupIUnknown(requestHeaders));
+
+                LPWSTR rangeRaw = {};
+                ScopedExit cleanupRangeRaw(makeCleanup(rangeRaw, CoTaskMemFree));
+
+                std::optional<uint64_t> rangeStart, rangeEnd;
+
+                if (request->get_Headers(std::addressof(requestHeaders)) == S_OK && requestHeaders != nullptr
+                    && requestHeaders->GetHeader(L"Range", std::addressof(rangeRaw)) == S_OK && rangeRaw != nullptr
+                    && detail::parseByteRangeHeader(createUTF8FromUTF16(rangeRaw), rangeStart, rangeEnd))
+                {
+                    if (auto ranged = options.fetchResourceRange(uriUtf8.substr(defaultURI.size() - 1), rangeStart, rangeEnd))
+                    {
+                        if (ranged->data.empty())
+                        {
+                            const auto headerString = createUTF16StringFromUTF8("Content-Range: bytes */" + std::to_string(ranged->totalSize));
+
+                            if (coreWebViewEnvironment->CreateWebResourceResponse(nullptr, 416, L"Range Not Satisfiable",
+                                                                                  headerString.c_str(), std::addressof(response)) != S_OK)
+                                return E_FAIL;
+
+                            return args->put_Response(response) == S_OK ? S_OK : E_FAIL;
+                        }
+
+                        auto* stream = makeMemoryStream(reinterpret_cast<const BYTE*>(ranged->data.data()),
+                                                        static_cast<UINT>(ranged->data.size()));
+
+                        if (stream == nullptr)
+                            return E_FAIL;
+
+                        ScopedExit cleanupStream(makeCleanupIUnknown(stream));
+
+                        const auto firstByte = ranged->start;
+                        const auto lastByte = firstByte + ranged->data.size() - 1;
+
+                        std::vector<std::string> headers;
+                        headers.emplace_back("Content-Type: " + ranged->mimeType);
+                        headers.emplace_back("Content-Length: " + std::to_string(ranged->data.size()));
+                        headers.emplace_back("Content-Range: bytes " + std::to_string(firstByte) + "-"
+                                             + std::to_string(lastByte) + "/" + std::to_string(ranged->totalSize));
+                        headers.emplace_back("Accept-Ranges: bytes");
+                        headers.emplace_back("Cache-Control: no-store");
+                        headers.emplace_back("Access-Control-Allow-Origin: *");
+
+                        const auto headerString = createUTF16StringFromUTF8(choc::text::joinStrings(headers, "\n"));
+
+                        if (coreWebViewEnvironment->CreateWebResourceResponse(stream, 206, L"Partial Content",
+                                                                              headerString.c_str(), std::addressof(response)) != S_OK)
+                            return E_FAIL;
+
+                        return args->put_Response(response) == S_OK ? S_OK : E_FAIL;
+                    }
+                }
+            }
+
+            if (const auto resource = fetchResourceOrPageHTML(uriUtf8))
+            {
                 auto* stream =
                     makeMemoryStream(reinterpret_cast<const BYTE*>(resource->data.data()), static_cast<UINT>(resource->data.size()));
 
@@ -1736,6 +1937,7 @@ private:
                 headers.emplace_back("Content-Type: " + resource->mimeType);
                 headers.emplace_back("Cache-Control: no-store");
                 headers.emplace_back("Access-Control-Allow-Origin: *");
+                headers.emplace_back(options.fetchResourceRange ? "Accept-Ranges: bytes" : "Accept-Ranges: none");
 
                 if (!options.customUserAgent.empty())
                     headers.emplace_back("User-Agent: " + options.customUserAgent);
