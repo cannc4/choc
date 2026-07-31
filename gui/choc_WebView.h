@@ -114,6 +114,10 @@ public:
         /// with the requested path as their argument.
         FetchResource fetchResource;
 
+        /// When true, registering fetchResource does not navigate during construction.
+        /// The owner must call navigate() after installing init scripts and bindings.
+        bool deferInitialNavigation = false;
+
         /// Optional HTTP Range support for fetchResource-served content (media streaming).
         /// When a request carries a Range header and this callback is set, it is invoked
         /// instead of fetchResource. start/end mirror the single-range header forms:
@@ -407,7 +411,8 @@ struct choc::ui::WebView::Pimpl
             };
 
             webkit_web_context_register_uri_scheme(webviewContext, getURIScheme(options).c_str(), onResourceRequested, this, nullptr);
-            navigate({});
+            if (! options.deferInitialNavigation)
+                navigate({});
         }
 
         gtk_widget_show_all(webview);
@@ -615,7 +620,7 @@ struct choc::ui::WebView::Pimpl
 
         call<void>(config, "release");
 
-        if (options->fetchResource)
+        if (options->fetchResource && ! options->deferInitialNavigation)
             navigate({});
 
         CHOC_AUTORELEASE_END
@@ -1706,7 +1711,7 @@ private:
                     EventRegistrationToken token;
                     coreWebView->add_WebResourceRequested(handler, std::addressof(token));
 
-                    if (options.fetchResource)
+                    if (options.fetchResource && ! options.deferInitialNavigation)
                         navigate({});
 
                     ICoreWebView2Settings* settings = nullptr;
