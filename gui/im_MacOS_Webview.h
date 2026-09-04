@@ -9,9 +9,12 @@
     BOOL isHandlingKeyEquivalent;
     BOOL isHandlingKeyEvent;
     BOOL isHandlingKeyboardDispatch;
+    NSString* dropStagingDirectory;
+    NSOperationQueue* promiseQueue;
 }
 
 - (void)setAcceptKeyEvents:(BOOL)accept;
+- (void)setFileDropStagingDirectory:(NSString *)path;
 
 @end
 

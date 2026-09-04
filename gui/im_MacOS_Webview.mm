@@ -1,4 +1,5 @@
 #import "im_MacOS_Webview.h"
+#import <AppKit/AppKit.h>
 #include "choc_WebView.h"
 #include "choc_MessageLoop.h"
 
@@ -7,7 +8,18 @@
 - (instancetype)initWithFrame:(CGRect)frame configuration:(WKWebViewConfiguration *)configuration {
     self = [super initWithFrame:frame configuration:configuration];
     if (self) {
-        [self registerForDraggedTypes:@[(id)kUTTypeFileURL, NSPasteboardTypeFileURL, NSFilenamesPboardType]];
+        // A DAW drags a clip as a PROMISE, not a path: the file does not exist until
+        // the destination names a folder, so those types must be registered too.
+        NSMutableArray *draggedTypes = [NSMutableArray arrayWithArray:@[(id)kUTTypeFileURL,
+                                                                        NSPasteboardTypeFileURL,
+                                                                        NSFilenamesPboardType]];
+        [draggedTypes addObjectsFromArray:[NSFilePromiseReceiver readableDraggedTypes]];
+        [self registerForDraggedTypes:draggedTypes];
+
+        dropStagingDirectory = nil;
+        promiseQueue = [[NSOperationQueue alloc] init];
+        promiseQueue.maxConcurrentOperationCount = 1;
+
         acceptKeyEvents = NO;
         debugMode = NO;
         isHandlingKeyEquivalent = NO;
@@ -17,8 +29,26 @@
     return self;
 }
 
+- (void)dealloc {
+    [promiseQueue release];
+    [dropStagingDirectory release];
+    [super dealloc];
+}
+
 - (BOOL)acceptsFirstMouse:(NSEvent *)event {
     return YES;
+}
+
+- (void)setFileDropStagingDirectory:(NSString *)path {
+    if (dropStagingDirectory == path)
+        return;
+    [dropStagingDirectory release];
+    dropStagingDirectory = [path copy];
+}
+
+- (BOOL)hasPromisedFiles:(id<NSDraggingInfo>)sender {
+    return [[sender draggingPasteboard] canReadObjectForClasses:@[[NSFilePromiseReceiver class]]
+                                                        options:@{}];
 }
 
 - (void)setDebugMode:(BOOL)enabled {
@@ -61,6 +91,8 @@
     // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
     if (!filePaths || filePaths.count == 0) {
+        if ([self hasPromisedFiles:sender])
+            return NSDragOperationCopy;
         return [super draggingEntered:sender];
     }
 
@@ -84,7 +116,8 @@
     // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
     if (!filePaths || filePaths.count == 0) {
-        [super draggingExited:sender];
+        if (![self hasPromisedFiles:sender])
+            [super draggingExited:sender];
         return;
     }
 
@@ -102,6 +135,8 @@
     // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
     if (!filePaths || filePaths.count == 0) {
+        if ([self hasPromisedFiles:sender])
+            return NSDragOperationCopy;
         return [super draggingUpdated:sender];
     }
 
@@ -121,10 +156,72 @@
     return NSDragOperationCopy;
 }
 
+// Resolve a promised drag (a clip dragged out of a DAW) into the staging folder the
+// host app named, then report the written paths as a VOLATILE drop.
+- (BOOL)receivePromisedFiles:(id<NSDraggingInfo>)sender {
+    NSArray<NSFilePromiseReceiver *> *receivers =
+        [[sender draggingPasteboard] readObjectsForClasses:@[[NSFilePromiseReceiver class]] options:@{}];
+    if (receivers.count == 0 || dropStagingDirectory == nil)
+        return NO;
+
+    NSUInteger expected = 0;
+    for (NSFilePromiseReceiver *receiver in receivers)
+        expected += receiver.fileNames.count;
+    if (expected == 0)
+        return NO;
+
+    NSString *dirName = [NSString stringWithFormat:@"drop_%.0f", [[NSDate date] timeIntervalSince1970] * 1000.0];
+    NSURL *destination = [NSURL fileURLWithPath:[dropStagingDirectory stringByAppendingPathComponent:dirName]];
+    if (![[NSFileManager defaultManager] createDirectoryAtURL:destination
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:nil])
+        return NO;
+
+    // The drag ends the moment this returns, so the location must be read now.
+    NSPoint localPoint = [self convertPoint:[sender draggingLocation] fromView:nil];
+    NSMutableArray<NSString *> *collected = [[NSMutableArray alloc] init];
+    __block NSUInteger remaining = expected;
+
+    [self evaluateJavaScript:@"if (window.ui && typeof window.ui.handleDragPending === 'function') { window.ui.handleDragPending() }"
+           completionHandler:nil];
+
+    for (NSFilePromiseReceiver *receiver in receivers) {
+        [receiver receivePromisedFilesAtDestination:destination
+                                            options:@{}
+                                     operationQueue:promiseQueue
+                                             reader:^(NSURL *fileURL, NSError *error) {
+            // promiseQueue is serial, so this counter needs no lock; only the last
+            // call may touch the web view, and only from the main queue.
+            if (error == nil && fileURL != nil)
+                [collected addObject:[fileURL path]];
+            if (--remaining > 0)
+                return;
+
+            NSString *json = [self jsonStringForFilePaths:collected];
+            [collected release];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSString *js = [NSString stringWithFormat:
+                    @"if (window.ui && typeof window.ui.handleDragDrop === 'function') { window.ui.handleDragDrop(%@, %f, %f, true) }",
+                    json, localPoint.x, localPoint.y];
+                [self evaluateJavaScript:js completionHandler:^(id result, NSError *jsError) {
+                    if (jsError) {
+                        NSLog(@"Promised drop error: %@", jsError);
+                    }
+                }];
+            });
+        }];
+    }
+
+    return YES;
+}
+
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
     // Check if this is a file drag
     NSArray *filePaths = [[sender draggingPasteboard] propertyListForType:NSFilenamesPboardType];
     if (!filePaths || filePaths.count == 0) {
+        if ([self receivePromisedFiles:sender])
+            return YES;
         return [super performDragOperation:sender];
     }
 

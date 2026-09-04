@@ -217,6 +217,11 @@ public:
     /// Returns the current acceptKeyEvents state (true when text input is focused)
     bool getAcceptKeyEvents() const;
 
+    /// macOS only: the folder a host-promised drag is written into before import.
+    /// Without it a promised drop (a DAW clip) is declined, since there is nowhere
+    /// to put the file the host renders.
+    void setFileDropStagingDirectory (std::string_view path);
+
 private:
     //==============================================================================
     struct Pimpl;
@@ -687,6 +692,13 @@ struct choc::ui::WebView::Pimpl
     }
 
     void setAcceptKeyEvents(bool accept) { objc::call<void>(webview, "setAcceptKeyEvents:", accept); }
+
+    void setFileDropStagingDirectory (std::string_view path)
+    {
+        CHOC_AUTORELEASE_BEGIN
+        objc::call<void>(webview, "setFileDropStagingDirectory:", objc::getNSString(std::string(path)));
+        CHOC_AUTORELEASE_END
+    }
 
     bool evaluateJavascript(const std::string& script, CompletionHandler completionHandler)
     {
@@ -2278,6 +2290,16 @@ inline bool WebView::getAcceptKeyEvents() const
     return pimpl != nullptr && pimpl->getAcceptKeyEvents();
 #else
     return false;
+#endif
+}
+
+inline void WebView::setFileDropStagingDirectory (std::string_view path)
+{
+#if CHOC_APPLE
+    if (pimpl != nullptr)
+        pimpl->setFileDropStagingDirectory (path);
+#else
+    (void) path;
 #endif
 }
 
