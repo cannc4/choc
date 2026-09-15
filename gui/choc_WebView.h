@@ -158,6 +158,11 @@ public:
         /// otherwise wouldn't work by default. This lets you turn that off if you
         /// need to.
         bool enableDefaultClipboardKeyShortcutsInSafari = true;
+
+        /// Controls `navigator.gpu` in the page. On macOS this drives the WebKit
+        /// `WebGPUEnabled` feature, which WKWebView leaves off before macOS 26.
+        /// Other platforms follow their engine default and ignore this.
+        bool enableWebGPU = true;
     };
 
     /// Creates a WebView with default options
@@ -577,6 +582,48 @@ struct choc::ui::WebView::Pimpl
 #include "choc_MessageLoop.h"
 #include "im_MacOS_Webview.h"
 
+namespace choc::ui::macos_webkit_features
+{
+    /// WKPreferences is NOT key-value coding compliant for these keys, so the
+    /// setValue:forKey: route used for the other prefs throws instead of working.
+    inline bool setFeatureEnabled(id prefs, const char* featureKey, bool enabled)
+    {
+        using namespace choc::objc;
+
+        static constexpr struct { const char* list; const char* setter; } featureLists[] =
+        {
+            { "_features",             "_setEnabled:forFeature:" },
+            { "_experimentalFeatures", "_setEnabled:forExperimentalFeature:" }
+        };
+
+        id prefsClass = (id) objc_getClass("WKPreferences");
+
+        for (auto& l : featureLists)
+        {
+            if (! call<BOOL>(prefsClass, "respondsToSelector:", sel_registerName(l.list))
+                 || ! call<BOOL>(prefs, "respondsToSelector:", sel_registerName(l.setter)))
+                continue;
+
+            id features = call<id>(prefsClass, l.list);
+            auto count = call<unsigned long>(features, "count");
+            id wanted = getNSString(featureKey);
+
+            for (unsigned long i = 0; i < count; ++i)
+            {
+                id feature = call<id>(features, "objectAtIndex:", i);
+
+                if (call<BOOL>(call<id>(feature, "key"), "isEqualToString:", wanted))
+                {
+                    call<void>(prefs, l.setter, (BOOL) enabled, feature);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+}
+
 struct choc::ui::WebView::Pimpl
 {
     Pimpl(WebView& v, const Options& optionsToUse)
@@ -598,6 +645,8 @@ struct choc::ui::WebView::Pimpl
 
         if (options->enableDebugMode)
             call<void>(prefs, "setValue:forKey:", getNSNumberBool(true), getNSString("developerExtrasEnabled"));
+
+        macos_webkit_features::setFeatureEnabled(prefs, "WebGPUEnabled", options->enableWebGPU);
 
         delegate = createDelegate();
         objc_setAssociatedObject(delegate, "choc_webview", (CHOC_OBJC_CAST_BRIDGED id)this, OBJC_ASSOCIATION_ASSIGN);
