@@ -393,6 +393,7 @@ struct choc::ui::WebView::Pimpl
                         auto* headers = soup_message_headers_new(SOUP_MESSAGE_HEADERS_RESPONSE);
                         soup_message_headers_append(headers, "Cache-Control", "no-store");
                         soup_message_headers_append(headers, "Access-Control-Allow-Origin", "*");
+                        soup_message_headers_append(headers, "Cross-Origin-Resource-Policy", "cross-origin");
                         webkit_uri_scheme_response_set_http_headers(response, headers);  // response takes ownership of the headers
 
                         webkit_uri_scheme_request_finish_with_response(request, response);
@@ -877,10 +878,11 @@ private:
 
                         id headerKeys[] = {getNSString("Content-Length"), getNSString("Content-Type"),
                                            getNSString("Content-Range"), getNSString("Accept-Ranges"),
-                                           getNSString("Cache-Control"), getNSString("Access-Control-Allow-Origin")};
+                                           getNSString("Cache-Control"), getNSString("Access-Control-Allow-Origin"),
+                                           getNSString("Cross-Origin-Resource-Policy")};
                         id headerObjects[] = {getNSString(std::to_string(ranged->data.size())), getNSString(ranged->mimeType),
                                               getNSString(contentRange), getNSString("bytes"),
-                                              getNSString("no-store"), getNSString("*")};
+                                              getNSString("no-store"), getNSString("*"), getNSString("cross-origin")};
                         id headerFields = callClass<id>("NSDictionary", "dictionaryWithObjects:forKeys:count:",
                                                         headerObjects, headerKeys, sizeof(headerObjects) / sizeof(id));
 
@@ -901,10 +903,12 @@ private:
                 // When ranges are supported, advertise them on full-body responses so the
                 // browser's media loader switches to bounded range requests.
                 const auto acceptRanges = options->fetchResourceRange ? "bytes" : "none";
+                // CORP: a COEP require-corp page (the Vite dev server) embeds these, and WebKit fails every reuse without it.
                 id headerKeys[] = {getNSString("Content-Length"), getNSString("Content-Type"), getNSString("Cache-Control"),
-                                   getNSString("Access-Control-Allow-Origin"), getNSString("Accept-Ranges")};
+                                   getNSString("Access-Control-Allow-Origin"), getNSString("Accept-Ranges"),
+                                   getNSString("Cross-Origin-Resource-Policy")};
                 id headerObjects[] = {getNSString(contentLength), getNSString(mimeType), getNSString("no-store"), getNSString("*"),
-                                      getNSString(acceptRanges)};
+                                      getNSString(acceptRanges), getNSString("cross-origin")};
 
                 id headerFields = callClass<id>("NSDictionary", "dictionaryWithObjects:forKeys:count:", headerObjects, headerKeys,
                                                 sizeof(headerObjects) / sizeof(id));
@@ -1977,6 +1981,7 @@ private:
                         headers.emplace_back("Accept-Ranges: bytes");
                         headers.emplace_back("Cache-Control: no-store");
                         headers.emplace_back("Access-Control-Allow-Origin: *");
+                        headers.emplace_back("Cross-Origin-Resource-Policy: cross-origin");
 
                         const auto headerString = createUTF16StringFromUTF8(choc::text::joinStrings(headers, "\n"));
 
@@ -2003,6 +2008,7 @@ private:
                 headers.emplace_back("Content-Type: " + resource->mimeType);
                 headers.emplace_back("Cache-Control: no-store");
                 headers.emplace_back("Access-Control-Allow-Origin: *");
+                headers.emplace_back("Cross-Origin-Resource-Policy: cross-origin");
                 headers.emplace_back(options.fetchResourceRange ? "Accept-Ranges: bytes" : "Accept-Ranges: none");
 
                 if (!options.customUserAgent.empty())
